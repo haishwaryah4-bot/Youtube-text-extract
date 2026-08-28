@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>NovaTube AI — Next-Gen YouTube Intelligence & Action Studio</title>
-  <meta name="description" content="AI-powered video intelligence, step-by-step action breakdown, and PDF generator grounded in YouTube video transcripts.">
+  <title>TubeAction — Structured Video Intelligence & PDF Action Reports</title>
+  <meta name="description" content="AI-powered video analysis, action extraction, and PDF generation grounded in YouTube video transcripts.">
   
   <!-- Google Fonts: Outfit & Plus Jakarta Sans -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -17,6 +17,11 @@
   <link rel="stylesheet" href="style.css">
 </head>
 <body class="dark-theme">
+  <!-- Subtle Grid Pattern Background Overlay -->
+  <div class="grid-background"></div>
+  <div class="radial-glow-1"></div>
+  <div class="radial-glow-2"></div>
+
   <div class="app-layout">
     <!-- Header -->
     <header class="navbar">
@@ -26,11 +31,10 @@
             <i data-lucide="play" class="icon-brand-play"></i>
           </div>
           <div class="brand-text">
-            <span class="brand-title">Nova<span class="gradient-text">Tube</span> <span class="brand-suffix">AI</span></span>
-            <span class="brand-badge">Intelligence Engine</span>
+            <span class="brand-title">Tube<span class="gradient-text">Action</span></span>
+            <span class="brand-badge">Intelligence & Actions</span>
           </div>
         </div>
-
 
         <div class="nav-actions">
           <button id="btnSettings" class="btn btn-secondary btn-sm" title="Configure OpenAI API Key">
@@ -46,31 +50,89 @@
 
     <!-- Main Container -->
     <main class="main-content">
-      <!-- Hero & URL Input Section -->
-      <section class="hero-section">
-        <div class="hero-header">
-          <div class="hero-pill">
-            <i data-lucide="sparkles" class="icon-xs"></i>
-            <span>Strictly Grounded in Video Transcripts</span>
+      <!-- Asymmetric Hero Section -->
+      <section class="hero-container">
+        <div class="hero-left">
+          <div class="hero-eyebrow">
+            <i data-lucide="shield-check" class="icon-xs eyebrow-icon"></i>
+            <span>Grounded Video Intelligence</span>
           </div>
-          <h1 class="hero-title">YouTube Video to <span class="gradient-text">Structured Actions</span> & PDF</h1>
+          <h1 class="hero-title">YouTube Video to <span class="gradient-emphasis">Structured Actions</span> & PDF</h1>
           <p class="hero-subtitle">
-            Paste any YouTube URL to extract verified overviews, key points, step-by-step instructions, interactive checklists, and a ready-to-download PDF report.
+            Extract verified step-by-step instructions, main concepts, interactive checklists, and a professional PDF report grounded strictly in video transcripts.
           </p>
+          <div class="trust-indicator">
+            <i data-lucide="lock" class="icon-xs lock-icon"></i>
+            <span>Grounded strictly in spoken dialogue • Zero hallucinations</span>
+          </div>
         </div>
 
-        <!-- Input Box Card -->
-        <div class="input-card glass-panel">
+        <div class="hero-right">
+          <div class="workflow-panel glass-panel">
+            <div class="workflow-header">
+              <span class="dot red"></span>
+              <span class="dot yellow"></span>
+              <span class="dot green"></span>
+              <span class="workflow-title">processing_pipeline.json</span>
+            </div>
+            <div class="workflow-nodes">
+              <div class="node">
+                <i data-lucide="youtube" class="node-icon icon-cyan"></i>
+                <div class="node-content">
+                  <div class="node-title">YouTube URL</div>
+                  <div class="node-desc">Target Video Stream</div>
+                </div>
+              </div>
+              <div class="node-connector"></div>
+              <div class="node">
+                <i data-lucide="file-text" class="node-icon icon-cyan"></i>
+                <div class="node-content">
+                  <div class="node-title">Transcript Track</div>
+                  <div class="node-desc">Timestamped Segments</div>
+                </div>
+              </div>
+              <div class="node-connector"></div>
+              <div class="node">
+                <i data-lucide="cpu" class="node-icon icon-purple"></i>
+                <div class="node-content">
+                  <div class="node-title">AI Analysis</div>
+                  <div class="node-desc">LangGraph StateGraph</div>
+                </div>
+              </div>
+              <div class="node-connector"></div>
+              <div class="node">
+                <i data-lucide="check-square" class="node-icon icon-purple"></i>
+                <div class="node-content">
+                  <div class="node-title">Actions Extracted</div>
+                  <div class="node-desc">Steps, Tools, Precautions</div>
+                </div>
+              </div>
+              <div class="node-connector"></div>
+              <div class="node">
+                <i data-lucide="file-down" class="node-icon icon-blue"></i>
+                <div class="node-content">
+                  <div class="node-title">PDF Generation</div>
+                  <div class="node-desc">Downloadable Report</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- URL Input Control Panel Section -->
+      <section class="control-panel-section">
+        <div class="control-panel glass-panel">
           <form id="processForm" class="input-form">
             <div class="input-group">
               <div class="input-icon-prefix">
-                <i data-lucide="youtube" class="icon-youtube"></i>
+                <i data-lucide="link" class="icon-link"></i>
               </div>
               <input 
                 type="text" 
                 id="youtubeUrl" 
                 class="form-control url-input" 
-                placeholder="Paste YouTube Video URL (e.g. https://www.youtube.com/watch?v=...)" 
+                placeholder="Enter YouTube Video URL (e.g. https://www.youtube.com/watch?v=...)" 
                 autocomplete="off" 
                 required
               />
@@ -86,23 +148,26 @@
             </div>
 
             <button type="submit" id="btnProcess" class="btn btn-primary btn-glow">
-              <i data-lucide="sparkles" class="icon-sm"></i>
+              <i data-lucide="play" class="icon-sm"></i>
               <span>Process Video</span>
             </button>
           </form>
 
           <!-- Quick Samples Pills -->
           <div class="samples-bar">
-            <span class="samples-label"><i data-lucide="zap" class="icon-xs"></i> Try Sample:</span>
+            <span class="samples-label"><i data-lucide="play-circle" class="icon-xs"></i> Try Sample:</span>
             <div class="samples-list" id="samplePills">
               <button type="button" class="sample-chip" data-url="https://www.youtube.com/watch?v=0e3GPea1Tyg">
-                🌾 Fertilizer & Plants
+                <i data-lucide="sprout" class="icon-xxs"></i>
+                <span>Fertilizer Guide</span>
               </button>
               <button type="button" class="sample-chip" data-url="https://www.youtube.com/watch?v=x7X9w_GIm1s">
-                💻 Python in 100s
+                <i data-lucide="terminal" class="icon-xxs"></i>
+                <span>Python in 100s</span>
               </button>
               <button type="button" class="sample-chip" data-url="https://www.youtube.com/watch?v=1oB1oDrDkHM">
-                ☕ Coffee Brewing
+                <i data-lucide="cup-straw" class="icon-xxs"></i>
+                <span>Coffee Brewing</span>
               </button>
             </div>
           </div>
@@ -111,6 +176,54 @@
           <div id="urlValidationStatus" class="url-status hidden"></div>
         </div>
       </section>
+
+      <!-- How TubeAction Thinks Pipeline Section -->
+      <section class="how-it-thinks-section">
+        <h2 class="section-title">How TubeAction Thinks</h2>
+        <p class="section-subtitle">A stateful sequential LangGraph agent pipeline analyzing and structuring video data.</p>
+        
+        <div class="pipeline-container">
+          <div class="pipeline-card glass-panel" data-step="01">
+            <div class="pipeline-step-num">01</div>
+            <i data-lucide="video" class="pipeline-icon icon-cyan"></i>
+            <h4 class="pipeline-card-title">Video Input</h4>
+            <p class="pipeline-card-desc">Accepts and validates standard or mobile YouTube URLs.</p>
+          </div>
+          <div class="pipeline-arrow"><i data-lucide="chevron-right"></i></div>
+          
+          <div class="pipeline-card glass-panel" data-step="02">
+            <div class="pipeline-step-num">02</div>
+            <i data-lucide="file-text" class="pipeline-icon icon-cyan"></i>
+            <h4 class="pipeline-card-title">Transcript Fetch</h4>
+            <p class="pipeline-card-desc">Provider layer retrieves timestamped captions and tracks.</p>
+          </div>
+          <div class="pipeline-arrow"><i data-lucide="chevron-right"></i></div>
+          
+          <div class="pipeline-card glass-panel" data-step="03">
+            <div class="pipeline-step-num">03</div>
+            <i data-lucide="git-branch" class="pipeline-icon icon-purple"></i>
+            <h4 class="pipeline-card-title">LangGraph Agent</h4>
+            <p class="pipeline-card-desc">Workflow coordinates validation, cleaning, and chunking.</p>
+          </div>
+          <div class="pipeline-arrow"><i data-lucide="chevron-right"></i></div>
+          
+          <div class="pipeline-card glass-panel" data-step="04">
+            <div class="pipeline-step-num">04</div>
+            <i data-lucide="zap" class="pipeline-icon icon-purple"></i>
+            <h4 class="pipeline-card-title">Action Extraction</h4>
+            <p class="pipeline-card-desc">Identifies steps, tools, and categorizes shown vs recommended steps.</p>
+          </div>
+          <div class="pipeline-arrow"><i data-lucide="chevron-right"></i></div>
+          
+          <div class="pipeline-card glass-panel" data-step="05">
+            <div class="pipeline-step-num">05</div>
+            <i data-lucide="file-down" class="pipeline-icon icon-blue"></i>
+            <h4 class="pipeline-card-title">PDF Report</h4>
+            <p class="pipeline-card-desc">Compiles a verified, professional intelligence document.</p>
+          </div>
+        </div>
+      </section>
+
 
       <!-- Progress Tracking Component -->
       <section id="progressSection" class="progress-section hidden">
