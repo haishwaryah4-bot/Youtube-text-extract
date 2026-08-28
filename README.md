@@ -17,29 +17,33 @@ TubeAction AI transforms YouTube video content into structured intelligence, ste
 ## 🏗️ Architecture
 
 ```
-          FRONTEND (Vanilla JS / CSS)
-                     ↓
-          POST /api/youtube/analyze
-                     ↓
-              YouTube Service
-                     ↓
-         Transcript Provider Layer
-                     ↓
-            LangGraph Workflow
-                     ↓
-     ┌───────────────┼───────────────┐
-     ↓               ↓               ↓
-  Summary         Actions         Review
-     └───────────────┼───────────────┘
-                     ↓
-               PDF Generator
-                     ↓
-               JSON Response
-                     ↓
-                  FRONTEND
+                    YouTube URL
+                         ↓
+                    LangGraph
+                         ↓
+                 Transcript Node
+                         ↓
+                  Chunking Node
+                         ↓
+              ┌──────────┴──────────┐
+              ↓                     ↓
+       Summary Agent          Action Agent
+              ↓                     ↓
+              └──────────┬──────────┘
+                         ↓
+                  Validation Node
+                         ↓
+                    RAG Index
+                         ↓
+                  Vector Database
+                         ↓
+                  PDF Generation
+                         ↓
+                  Final Response
 ```
 
 ---
+
 
 ## 🚀 Quick Start
 
