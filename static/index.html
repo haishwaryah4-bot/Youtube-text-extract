@@ -1,0 +1,505 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>YouTube Video Intelligence — Summary, Action Extractor & PDF Report</title>
+  <meta name="description" content="Extract structured summaries, step-by-step actions, and downloadable PDF reports grounded directly in YouTube video transcripts.">
+  
+  <!-- Google Fonts: Outfit & Inter -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <link rel="stylesheet" href="style.css">
+</head>
+<body class="dark-theme">
+  <div class="app-layout">
+    <!-- Header -->
+    <header class="navbar">
+      <div class="nav-container">
+        <div class="nav-brand">
+          <div class="brand-icon">
+            <i data-lucide="play" class="icon-brand-play"></i>
+          </div>
+          <div class="brand-text">
+            <span class="brand-title">Tube<span class="gradient-text">Action</span></span>
+            <span class="brand-badge">Intelligence & Actions</span>
+          </div>
+        </div>
+
+        <div class="nav-actions">
+          <button id="btnSettings" class="btn btn-secondary btn-sm" title="Configure OpenAI API Key">
+            <i data-lucide="key" class="icon-sm"></i>
+            <span>API Settings</span>
+          </button>
+          <a href="https://github.com" target="_blank" class="btn btn-secondary btn-icon-only" title="GitHub Repository">
+            <i data-lucide="github" class="icon-sm"></i>
+          </a>
+        </div>
+      </div>
+    </header>
+
+    <!-- Main Container -->
+    <main class="main-content">
+      <!-- Hero & URL Input Section -->
+      <section class="hero-section">
+        <div class="hero-header">
+          <div class="hero-pill">
+            <i data-lucide="sparkles" class="icon-xs"></i>
+            <span>Strictly Grounded in Video Transcripts</span>
+          </div>
+          <h1 class="hero-title">YouTube Video to <span class="gradient-text">Structured Actions</span> & PDF</h1>
+          <p class="hero-subtitle">
+            Paste any YouTube URL to extract verified overviews, key points, step-by-step instructions, interactive checklists, and a ready-to-download PDF report.
+          </p>
+        </div>
+
+        <!-- Input Box Card -->
+        <div class="input-card glass-panel">
+          <form id="processForm" class="input-form">
+            <div class="input-group">
+              <div class="input-icon-prefix">
+                <i data-lucide="youtube" class="icon-youtube"></i>
+              </div>
+              <input 
+                type="text" 
+                id="youtubeUrl" 
+                class="form-control url-input" 
+                placeholder="Paste YouTube Video URL (e.g. https://www.youtube.com/watch?v=...)" 
+                autocomplete="off" 
+                required
+              />
+              <div class="input-actions">
+                <button type="button" id="btnPaste" class="btn btn-ghost btn-sm" title="Paste from Clipboard">
+                  <i data-lucide="clipboard" class="icon-xs"></i>
+                  <span>Paste</span>
+                </button>
+                <button type="button" id="btnClear" class="btn btn-ghost btn-sm btn-icon-only hidden" title="Clear">
+                  <i data-lucide="x" class="icon-xs"></i>
+                </button>
+              </div>
+            </div>
+
+            <button type="submit" id="btnProcess" class="btn btn-primary btn-glow">
+              <i data-lucide="sparkles" class="icon-sm"></i>
+              <span>Process Video</span>
+            </button>
+          </form>
+
+          <!-- Quick Samples Pills -->
+          <div class="samples-bar">
+            <span class="samples-label"><i data-lucide="zap" class="icon-xs"></i> Try Sample:</span>
+            <div class="samples-list" id="samplePills">
+              <button type="button" class="sample-chip" data-url="https://www.youtube.com/watch?v=0e3GPea1Tyg">
+                🌾 Fertilizer & Plants
+              </button>
+              <button type="button" class="sample-chip" data-url="https://www.youtube.com/watch?v=x7X9w_GIm1s">
+                💻 Python in 100s
+              </button>
+              <button type="button" class="sample-chip" data-url="https://www.youtube.com/watch?v=1oB1oDrDkHM">
+                ☕ Coffee Brewing
+              </button>
+            </div>
+          </div>
+
+          <!-- URL Validation Feedback Badge -->
+          <div id="urlValidationStatus" class="url-status hidden"></div>
+        </div>
+      </section>
+
+      <!-- Progress Tracking Component -->
+      <section id="progressSection" class="progress-section hidden">
+        <div class="progress-card glass-panel">
+          <div class="progress-header">
+            <div class="progress-title-wrap">
+              <div class="spinner-pulse"></div>
+              <div>
+                <h3 class="progress-title" id="currentProgressTitle">Processing Video...</h3>
+                <p class="progress-subtitle" id="currentProgressSub">Extracting and analyzing transcript data</p>
+              </div>
+            </div>
+            <div class="progress-timer" id="progressTimer">00:00</div>
+          </div>
+
+          <!-- Stepper Pipeline -->
+          <div class="stepper-pipeline">
+            <div class="step-node active" data-step="1">
+              <div class="step-circle"><i data-lucide="check" class="icon-step"></i></div>
+              <span class="step-label">URL Validation</span>
+            </div>
+            <div class="step-line" data-line="1"></div>
+            <div class="step-node" data-step="2">
+              <div class="step-circle"><i data-lucide="file-text" class="icon-step"></i></div>
+              <span class="step-label">Fetching Transcript</span>
+            </div>
+            <div class="step-line" data-line="2"></div>
+            <div class="step-node" data-step="3">
+              <div class="step-circle"><i data-lucide="cpu" class="icon-step"></i></div>
+              <span class="step-label">Processing Content</span>
+            </div>
+            <div class="step-line" data-line="3"></div>
+            <div class="step-node" data-step="4">
+              <div class="step-circle"><i data-lucide="layers" class="icon-step"></i></div>
+              <span class="step-label">Generating Summary</span>
+            </div>
+            <div class="step-line" data-line="4"></div>
+            <div class="step-node" data-step="5">
+              <div class="step-circle"><i data-lucide="list-checks" class="icon-step"></i></div>
+              <span class="step-label">Extracting Actions</span>
+            </div>
+            <div class="step-line" data-line="5"></div>
+            <div class="step-node" data-step="6">
+              <div class="step-circle"><i data-lucide="file-down" class="icon-step"></i></div>
+              <span class="step-label">Generating PDF</span>
+            </div>
+            <div class="step-line" data-line="6"></div>
+            <div class="step-node" data-step="7">
+              <div class="step-circle"><i data-lucide="sparkles" class="icon-step"></i></div>
+              <span class="step-label">Complete</span>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Error State Card -->
+      <section id="errorSection" class="error-section hidden">
+        <div class="error-card glass-panel">
+          <div class="error-icon-box">
+            <i data-lucide="alert-triangle" class="icon-error"></i>
+          </div>
+          <div class="error-content">
+            <h3 class="error-title" id="errorTitle">Processing Error</h3>
+            <p class="error-desc" id="errorMessage">Unable to process video.</p>
+            <div class="error-actions">
+              <button id="btnRetry" class="btn btn-secondary btn-sm">
+                <i data-lucide="rotate-cw" class="icon-xs"></i>
+                <span>Try Again</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Results Dashboard -->
+      <section id="resultsSection" class="results-section hidden">
+        <!-- Top Video Summary Header Card -->
+        <div class="video-meta-card glass-panel">
+          <div class="video-preview-wrapper">
+            <div class="video-embed-container" id="videoEmbedBox">
+              <iframe id="videoIframe" src="" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
+            </div>
+          </div>
+
+          <div class="video-details-column">
+            <div class="video-meta-badges">
+              <span class="badge badge-success"><i data-lucide="check-circle" class="icon-xxs"></i> Transcript Verified</span>
+              <span class="badge badge-info" id="badgeWordCount"><i data-lucide="align-left" class="icon-xxs"></i> 0 words</span>
+              <span class="badge badge-purple" id="badgeActionCount"><i data-lucide="check-square" class="icon-xxs"></i> 0 Actions</span>
+            </div>
+
+            <h2 class="video-title" id="displayVideoTitle">Video Title</h2>
+            <p class="video-author"><i data-lucide="user" class="icon-xs"></i> <span id="displayVideoAuthor">Channel</span></p>
+
+            <div class="video-action-buttons">
+              <a id="btnDownloadPdf" href="#" class="btn btn-primary btn-glow" download>
+                <i data-lucide="download" class="icon-sm"></i>
+                <span>Download PDF Report</span>
+              </a>
+              <button id="btnJumpPdfTab" class="btn btn-secondary">
+                <i data-lucide="file-text" class="icon-sm"></i>
+                <span>View PDF In-Page</span>
+              </button>
+              <button id="btnJumpChecklist" class="btn btn-secondary">
+                <i data-lucide="list-todo" class="icon-sm"></i>
+                <span>Action Checklist</span>
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Tab Navigation Bar -->
+        <div class="tabs-nav-wrapper">
+          <div class="tabs-nav" id="dashboardTabs">
+            <button class="tab-btn active" data-tab="tab-summary">
+              <i data-lucide="book-open" class="icon-xs"></i>
+              <span>Summary & Overview</span>
+            </button>
+            <button class="tab-btn" data-tab="tab-actions">
+              <i data-lucide="zap" class="icon-xs"></i>
+              <span>Step-by-Step Actions</span>
+              <span class="tab-badge" id="tabBadgeActions">0</span>
+            </button>
+            <button class="tab-btn" data-tab="tab-checklist">
+              <i data-lucide="check-square" class="icon-xs"></i>
+              <span>Interactive Checklist</span>
+              <span class="tab-badge" id="tabBadgeChecklist">0</span>
+            </button>
+            <button class="tab-btn" data-tab="tab-pdf">
+              <i data-lucide="file-down" class="icon-xs"></i>
+              <span>Live PDF Viewer</span>
+            </button>
+            <button class="tab-btn" data-tab="tab-chat">
+              <i data-lucide="message-square" class="icon-xs"></i>
+              <span>Ask AI Video Assistant</span>
+            </button>
+            <button class="tab-btn" data-tab="tab-transcript">
+              <i data-lucide="file-code" class="icon-xs"></i>
+              <span>Raw Transcript</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Tab Panes -->
+        <div class="tab-panes-container">
+          <!-- TAB 1: SUMMARY & INTELLIGENCE -->
+          <div id="tab-summary" class="tab-pane active">
+            <div class="dashboard-grid">
+              <!-- Section A: Overview -->
+              <div class="dash-card glass-panel full-width">
+                <div class="card-header">
+                  <div class="card-title-wrap">
+                    <span class="section-letter">A</span>
+                    <h3 class="card-title">Video Overview</h3>
+                  </div>
+                  <button class="btn btn-ghost btn-xs btnCopy" data-target="overviewContent">
+                    <i data-lucide="copy" class="icon-xs"></i> Copy
+                  </button>
+                </div>
+                <div class="card-body">
+                  <p class="overview-text lead" id="overviewContent">Loading overview...</p>
+                </div>
+              </div>
+
+              <!-- Section B: Main Topics -->
+              <div class="dash-card glass-panel full-width">
+                <div class="card-header">
+                  <div class="card-title-wrap">
+                    <span class="section-letter">B</span>
+                    <h3 class="card-title">Main Topics & Key Concepts</h3>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="topics-grid" id="mainTopicsList">
+                    <!-- Dynamic topic cards -->
+                  </div>
+                </div>
+              </div>
+
+              <!-- Section C: Key Points -->
+              <div class="dash-card glass-panel full-width">
+                <div class="card-header">
+                  <div class="card-title-wrap">
+                    <span class="section-letter">C</span>
+                    <h3 class="card-title">Key Points & Insights</h3>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <div class="key-points-trio">
+                    <div class="points-column facts-col">
+                      <div class="points-col-header">
+                        <i data-lucide="info" class="icon-xs col-icon"></i>
+                        <h4>Important Facts</h4>
+                      </div>
+                      <ul class="points-list" id="factsList"></ul>
+                    </div>
+
+                    <div class="points-column explanations-col">
+                      <div class="points-col-header">
+                        <i data-lucide="help-circle" class="icon-xs col-icon"></i>
+                        <h4>Important Explanations</h4>
+                      </div>
+                      <ul class="points-list" id="explanationsList"></ul>
+                    </div>
+
+                    <div class="points-column recommendations-col">
+                      <div class="points-col-header">
+                        <i data-lucide="thumbs-up" class="icon-xs col-icon"></i>
+                        <h4>Key Recommendations</h4>
+                      </div>
+                      <ul class="points-list" id="recommendationsList"></ul>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Section F: Final Summary -->
+              <div class="dash-card glass-panel full-width highlight-green">
+                <div class="card-header">
+                  <div class="card-title-wrap">
+                    <span class="section-letter">F</span>
+                    <h3 class="card-title">Final Summary & Takeaway</h3>
+                  </div>
+                </div>
+                <div class="card-body">
+                  <p class="final-summary-text" id="finalSummaryContent"></p>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 2: STEP-BY-STEP ACTIONS -->
+          <div id="tab-actions" class="tab-pane">
+            <div class="actions-header-bar">
+              <div>
+                <h3 class="section-heading">Identified Actions in the Video</h3>
+                <p class="section-subheading">Distinguishes actions demonstrated vs recommended with full step-by-step details.</p>
+              </div>
+              <div class="actions-legend">
+                <span class="legend-badge demo"><i data-lucide="video" class="icon-xxs"></i> Demonstrated in Video</span>
+                <span class="legend-badge rec"><i data-lucide="message-circle" class="icon-xxs"></i> Recommended / Instructed</span>
+              </div>
+            </div>
+
+            <div class="actions-container" id="actionsList">
+              <!-- Dynamically rendered detailed action cards -->
+            </div>
+          </div>
+
+          <!-- TAB 3: INTERACTIVE CHECKLIST -->
+          <div id="tab-checklist" class="tab-pane">
+            <div class="checklist-panel glass-panel">
+              <div class="checklist-top-bar">
+                <div>
+                  <h3 class="section-heading">Action Checklist</h3>
+                  <p class="section-subheading">Track your progress completing tasks from this video.</p>
+                </div>
+                <div class="checklist-stats">
+                  <span id="checklistProgressText">0 of 0 completed</span>
+                  <div class="checklist-progress-track">
+                    <div class="checklist-progress-bar" id="checklistProgressBar" style="width: 0%"></div>
+                  </div>
+                  <button id="btnResetChecklist" class="btn btn-ghost btn-xs">Reset</button>
+                  <button id="btnCopyChecklist" class="btn btn-secondary btn-xs">
+                    <i data-lucide="copy" class="icon-xs"></i> Copy
+                  </button>
+                </div>
+              </div>
+
+              <div class="checklist-items" id="checklistContainer">
+                <!-- Checklist items -->
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 4: PDF VIEWER -->
+          <div id="tab-pdf" class="tab-pane">
+            <div class="pdf-viewer-card glass-panel">
+              <div class="pdf-toolbar">
+                <div class="pdf-toolbar-left">
+                  <i data-lucide="file-text" class="icon-sm"></i>
+                  <span class="pdf-file-name" id="pdfFileName">report.pdf</span>
+                </div>
+                <div class="pdf-toolbar-right">
+                  <a id="btnPdfDownloadDirect" href="#" class="btn btn-primary btn-sm" download>
+                    <i data-lucide="download" class="icon-xs"></i> Download PDF
+                  </a>
+                  <a id="btnPdfOpenNewTab" href="#" target="_blank" class="btn btn-secondary btn-sm">
+                    <i data-lucide="external-link" class="icon-xs"></i> Open in New Tab
+                  </a>
+                </div>
+              </div>
+
+              <div class="pdf-frame-wrapper" id="pdfFrameWrapper">
+                <iframe id="pdfIframe" src="" class="pdf-iframe" title="PDF Preview"></iframe>
+              </div>
+            </div>
+          </div>
+
+          <!-- TAB 5: AI CHAT ASSISTANT -->
+          <div id="tab-chat" class="tab-pane">
+            <div class="chat-container glass-panel">
+              <div class="chat-header">
+                <div class="chat-header-info">
+                  <div class="avatar-bot">
+                    <i data-lucide="bot" class="icon-sm"></i>
+                  </div>
+                  <div>
+                    <h4 class="chat-title">Video Q&A Assistant</h4>
+                    <p class="chat-subtitle">Answers strictly grounded in this video's transcript</p>
+                  </div>
+                </div>
+                <div class="chat-suggestions">
+                  <button class="chat-chip" data-msg="What are the key steps demonstrated?">Key steps?</button>
+                  <button class="chat-chip" data-msg="What tools or materials were mentioned?">Tools needed?</button>
+                  <button class="chat-chip" data-msg="What precautions should I take?">Precautions?</button>
+                </div>
+              </div>
+
+              <div class="chat-messages" id="chatMessages">
+                <div class="message bot-message">
+                  <div class="message-bubble">
+                    Hello! I have analyzed the entire transcript of this video. Ask me anything about the content, specific steps, timestamps, or advice mentioned!
+                  </div>
+                </div>
+              </div>
+
+              <form id="chatForm" class="chat-input-bar">
+                <input type="text" id="chatInput" class="form-control chat-input" placeholder="Ask a question about this video..." autocomplete="off" />
+                <button type="submit" id="btnSendChat" class="btn btn-primary btn-icon-only">
+                  <i data-lucide="send" class="icon-sm"></i>
+                </button>
+              </form>
+            </div>
+          </div>
+
+          <!-- TAB 6: RAW TRANSCRIPT -->
+          <div id="tab-transcript" class="tab-pane">
+            <div class="transcript-panel glass-panel">
+              <div class="transcript-header">
+                <div class="search-box">
+                  <i data-lucide="search" class="icon-xs search-icon"></i>
+                  <input type="text" id="transcriptSearch" class="form-control search-input" placeholder="Search transcript..." />
+                </div>
+                <button id="btnCopyTranscript" class="btn btn-secondary btn-sm">
+                  <i data-lucide="copy" class="icon-xs"></i> Copy Transcript
+                </button>
+              </div>
+              <div class="transcript-content" id="transcriptContent">
+                <!-- Timestamped lines -->
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+      <div class="footer-container">
+        <p>TubeAction AI • Grounded Video Intelligence & Action Extraction</p>
+        <p class="footer-sub">Generates verified summaries, step-by-step execution guides, and PDF documents.</p>
+      </div>
+    </footer>
+  </div>
+
+  <!-- Settings Modal -->
+  <div id="settingsModal" class="modal-overlay hidden">
+    <div class="modal-card glass-panel">
+      <div class="modal-header">
+        <div class="modal-title-wrap">
+          <i data-lucide="settings" class="icon-sm"></i>
+          <h3>Settings & API Configuration</h3>
+        </div>
+        <button id="btnCloseModal" class="btn btn-ghost btn-icon-only"><i data-lucide="x" class="icon-sm"></i></button>
+      </div>
+      <div class="modal-body">
+        <label for="apiKeyInput" class="form-label">OpenAI API Key (Optional)</label>
+        <input type="password" id="apiKeyInput" class="form-control" placeholder="sk-..." />
+        <p class="form-hint">If left empty, server uses the default environment key or smart deterministic grounding.</p>
+      </div>
+      <div class="modal-footer">
+        <button id="btnSaveSettings" class="btn btn-primary">Save Settings</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Toast Notification Container -->
+  <div id="toastContainer" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>

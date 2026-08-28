@@ -1,0 +1,21 @@
+# Python bytecode
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Environments & Keys
+.env
+.venv/
+env/
+venv/
+ENV/
+
+# PDF Outputs (keep folder structure)
+generated_pdfs/*.pdf
+!generated_pdfs/.gitkeep
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
