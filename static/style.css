@@ -1966,3 +1966,50 @@ h1, h2, h3, h4 {
 .icon-youtube { width: 22px; height: 22px; }
 .icon-step { width: 18px; height: 18px; }
 .icon-error { width: 24px; height: 24px; }
+
+/* Manual Fallback Paste Area Styling */
+.manual-fallback-area {
+  margin-top: 1.5rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.75rem;
+  width: 100%;
+  text-align: left;
+}
+
+.fallback-heading {
+  font-size: 0.95rem;
+  font-weight: 700;
+  color: var(--text-main);
+  font-family: var(--font-display);
+}
+
+.fallback-sub {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.fallback-textarea {
+  width: 100%;
+  min-height: 120px;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-main);
+  padding: 0.65rem 0.85rem;
+  font-size: 0.85rem;
+  font-family: var(--font-sans);
+  resize: vertical;
+  outline: none;
+  transition: all var(--transition-fast);
+}
+
+.fallback-textarea:focus {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 2px var(--primary-glow);
+}
+

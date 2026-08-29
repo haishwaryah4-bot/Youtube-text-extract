@@ -294,9 +294,21 @@
                 <span>Try Again</span>
               </button>
             </div>
+
+            <!-- Manual Fallback Paste Area -->
+            <div id="manualFallbackContainer" class="manual-fallback-area">
+              <h4 class="fallback-heading">Or, Paste Video Transcript Manually</h4>
+              <p class="fallback-sub">Since automated retrieval was blocked/unavailable, paste the transcript below to proceed with the analysis:</p>
+              <textarea id="manualTranscriptInput" class="fallback-textarea" placeholder="Paste the transcript text here..."></textarea>
+              <button id="btnSubmitManual" class="btn btn-primary btn-sm btn-glow">
+                <i data-lucide="sparkles" class="icon-xs"></i>
+                <span>Analyze Pasted Transcript</span>
+              </button>
+            </div>
           </div>
         </div>
       </section>
+
 
       <!-- Results Dashboard -->
       <section id="resultsSection" class="results-section hidden">

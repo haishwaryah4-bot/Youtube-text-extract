@@ -214,6 +214,26 @@ document.addEventListener('DOMContentLoaded', () => {
   btnJumpPdfTab.addEventListener('click', () => switchTab('tab-pdf'));
   btnJumpChecklist.addEventListener('click', () => switchTab('tab-checklist'));
 
+  // Manual fallback elements
+  const btnSubmitManual = document.getElementById('btnSubmitManual');
+  const manualTranscriptInput = document.getElementById('manualTranscriptInput');
+
+  if (btnSubmitManual && manualTranscriptInput) {
+    btnSubmitManual.addEventListener('click', () => {
+      const url = youtubeUrlInput.value.trim();
+      const text = manualTranscriptInput.value.trim();
+      if (!url) {
+        showToast('Please enter a YouTube video URL first.');
+        return;
+      }
+      if (!text) {
+        showToast('Please paste the transcript text first.');
+        return;
+      }
+      processVideo(url, text);
+    });
+  }
+
   // --- Main Video Processing Pipeline ---
   processForm.addEventListener('submit', (e) => {
     e.preventDefault();
@@ -230,7 +250,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
   });
 
-  async function processVideo(url) {
+  async function processVideo(url, manualTranscript = null) {
     errorSection.classList.add('hidden');
     resultsSection.classList.add('hidden');
     progressSection.classList.remove('hidden');
@@ -244,7 +264,11 @@ document.addEventListener('DOMContentLoaded', () => {
     try {
       setTimeout(() => {
         if (!timerInterval) return;
-        updateStepper(2, 'Fetching Transcript & Captions...', 'Retrieving authentic timestamped subtitles');
+        if (manualTranscript) {
+          updateStepper(2, 'Using Custom Transcript...', 'Pasted text accepted successfully');
+        } else {
+          updateStepper(2, 'Fetching Transcript & Captions...', 'Retrieving authentic timestamped subtitles');
+        }
       }, 700);
 
       setTimeout(() => {
@@ -268,13 +292,18 @@ document.addEventListener('DOMContentLoaded', () => {
       }, 5500);
 
       // Call the standardized POST /api/youtube/analyze endpoint
+      const bodyPayload = {
+        youtube_url: url,
+        api_key: userApiKey
+      };
+      if (manualTranscript) {
+        bodyPayload.transcript = manualTranscript;
+      }
+
       const response = await fetch('/api/youtube/analyze', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          youtube_url: url,
-          api_key: userApiKey
-        })
+        body: JSON.stringify(bodyPayload)
       });
 
       const data = await response.json();
@@ -300,7 +329,11 @@ document.addEventListener('DOMContentLoaded', () => {
         progressSection.classList.add('hidden');
         renderResults(data);
         btnProcess.disabled = false;
+        if (manualTranscriptInput) {
+          manualTranscriptInput.value = ''; // clear paste text
+        }
       }, 600);
+
 
     } catch (err) {
       stopTimer();
