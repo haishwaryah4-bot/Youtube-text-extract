@@ -328,14 +328,22 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
   if (btnSubmitManual && manualTranscriptInput) {
-    btnSubmitManual.addEventListener('click', () => {
+    btnSubmitManual.addEventListener('click', async () => {
       const url = youtubeUrlInput.value.trim();
       const text = manualTranscriptInput.value.trim();
+      
       if (!url) {
-        showToast('Please enter a YouTube video URL first.');
+        showToast('Please enter a YouTube URL.');
         return;
       }
-      if (!text) {
+
+      if (text) {
+        // Validation: Ensure the pasted text is not a URL
+        if (text.match(/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/i)) {
+          showToast('Please paste transcript text, not a YouTube URL.');
+          return;
+        }
+      } else {
         showToast('Please paste the transcript text first.');
         return;
       }
@@ -426,11 +434,30 @@ document.addEventListener('DOMContentLoaded', () => {
         bodyPayload.transcript = manualTranscript;
       }
 
-      const response = await fetch('/api/youtube/analyze', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(bodyPayload)
-      });
+      loadingText.textContent = 'Getting video content...';
+      
+      const loadingStates = [
+        'Getting video content...',
+        'Transcribing video...',
+        'Generating summary...'
+      ];
+      let currentStateIdx = 0;
+      const loadingInterval = setInterval(() => {
+        currentStateIdx = (currentStateIdx + 1) % loadingStates.length;
+        if (loadingText) loadingText.textContent = loadingStates[currentStateIdx];
+      }, 5000);
+
+      let response;
+      try {
+        response = await fetch('/api/youtube/analyze', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(bodyPayload)
+        });
+      } finally {
+        clearInterval(loadingInterval);
+        if (loadingText) loadingText.textContent = 'Summary ready';
+      }
 
       let data;
       try {
@@ -441,20 +468,16 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Check if request or transcript retrieval failed
       if (!response.ok || !data.success || data.transcript_status !== 'success') {
-        let userFacingError = data.error || '';
+        let userFacingError = data.error || 'An unexpected error occurred.';
         
-        if (!userFacingError) {
-          if (data.transcript_status === 'rate_limited') {
-            userFacingError = 'YouTube temporarily blocked automated transcript retrieval. Try later or paste a transcript.';
-          } else if (data.transcript_status === 'captions_unavailable' || data.transcript_status === 'unavailable') {
-            userFacingError = 'Unable to access or transcribe this video. Please try a publicly accessible video or paste its transcript.';
-          } else if (data.transcript_status === 'invalid_transcript' || data.transcript_status === 'error') {
-            userFacingError = manualTranscript ? 'The pasted text is not a valid transcript.' : 'Unable to access or transcribe this video. Please try a publicly accessible video or paste its transcript.';
-          } else if (data.transcript_status === 'video_unavailable') {
+        if (data.error_type === 'YOUTUBE_RATE_LIMITED') {
+            userFacingError = 'YouTube is temporarily blocking automated access from our servers. Please try a different video or paste the transcript manually.';
+        } else if (data.error_type === 'NO_TRANSCRIPT') {
+            userFacingError = 'No speech or captions could be found in this video.';
+        } else if (data.error_type === 'VIDEO_UNAVAILABLE') {
             userFacingError = 'This video is private, age-restricted, removed, or unavailable.';
-          } else {
-            userFacingError = 'Unable to process video.';
-          }
+        } else if (data.error_type === 'OPENAI_CONFIGURATION_ERROR') {
+            userFacingError = 'OpenAI API key missing. Cannot process the audio fallback.';
         }
 
         throw new Error(userFacingError);

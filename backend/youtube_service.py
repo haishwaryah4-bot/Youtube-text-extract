@@ -630,7 +630,9 @@ class TranscriptManager:
 
         for provider in self.providers:
             logger.info(f"Attempting transcript retrieval with provider: {provider.name}")
-            result = provider.get_transcript(video_id, timeout=timeout)
+            # Whisper needs much more time than the default 15s for downloading and API calls
+            provider_timeout = 300.0 if "Whisper" in provider.name else timeout
+            result = provider.get_transcript(video_id, timeout=provider_timeout)
             
             if result.status == "success":
                 logger.info(f"Success with transcript provider: {provider.name}")

@@ -243,6 +243,7 @@ async def analyze_youtube(request):
             "tools_materials": [],
             "precautions": [],
             "pdf_path": None,
+            "error_type": res.get("error_type", "TRANSCRIPTION_ERROR"),
             "error": error or f"Transcript retrieval failed ({transcript_status})."
         }
         return JSONResponse(response_payload, status_code=200)

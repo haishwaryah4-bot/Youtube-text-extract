@@ -125,11 +125,31 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
         state["chunks"] = []
         state["transcript_status"] = "unavailable"
         
-        # Determine clear error message
-        if transcript_status == "rate_limited" or (err_msg and any(re.search(rf'\b{x}\b', err_msg.lower()) for x in ("rate limit", "block", "429", "too many requests", "bot", "ip limit", "ip address"))):
-            state["error"] = "YouTube is currently rate-limiting automated transcript requests. Transcript-based analysis is unavailable for this video at the moment."
-        else:
-            state["error"] = err_msg or "Transcript-based analysis is unavailable for this video at the moment."
+        # Determine clear error type and message
+        error_type = "TRANSCRIPTION_ERROR"
+        error_message = err_msg or "Transcript-based analysis is unavailable for this video at the moment."
+
+        if transcript_status == "rate_limited":
+            error_type = "YOUTUBE_RATE_LIMITED"
+            error_message = "YouTube is currently rate-limiting automated transcript requests."
+        elif transcript_status == "video_unavailable":
+            error_type = "VIDEO_UNAVAILABLE"
+            error_message = "This video is private, age-restricted, removed, or unavailable."
+        elif "OpenAI API key is missing" in str(err_msg):
+            error_type = "OPENAI_CONFIGURATION_ERROR"
+            error_message = "OpenAI API key is missing or invalid. Cannot use audio transcription fallback."
+        elif "yt-dlp is not installed" in str(err_msg):
+            error_type = "TRANSCRIPTION_ERROR"
+            error_message = "Audio extraction dependency missing."
+        elif "too few words" in str(err_msg):
+            error_type = "NO_TRANSCRIPT"
+            error_message = "The video contains no recognizable speech."
+        elif "captions are empty" in str(err_msg).lower() or "disabled or unavailable" in str(err_msg).lower():
+            error_type = "NO_TRANSCRIPT"
+            error_message = "The video has no captions and audio fallback failed."
+
+        state["error"] = error_message
+        state["error_type"] = error_type
             
         return state
 
