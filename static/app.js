@@ -328,38 +328,23 @@ document.addEventListener('DOMContentLoaded', () => {
 
 
 
+  const DEFAULT_SAMPLE_TRANSCRIPT = "Modern farming uses technology to improve crop production and reduce waste. Farmers can use sensors to monitor soil moisture and crop conditions. Drip irrigation delivers water directly to plant roots and can reduce water loss. Weather information helps farmers decide when to irrigate and protect crops. Precision agriculture uses data to apply water, fertilizer, and other inputs more efficiently.";
+
   if (btnSubmitManual && manualTranscriptInput) {
     btnSubmitManual.addEventListener('click', async () => {
-      let url = youtubeUrlInput.value.trim();
-      const text = manualTranscriptInput.value.trim();
+      let url = youtubeUrlInput.value.trim() || "https://www.youtube.com/watch?v=sample12345";
+      let text = manualTranscriptInput.value.trim();
       
-      if (!url) {
-        url = "https://www.youtube.com/watch?v=sample12345";
+      // If user hasn't typed anything, auto-fill with the sample transcript for immediate demonstration
+      if (!text) {
+        text = DEFAULT_SAMPLE_TRANSCRIPT;
+        manualTranscriptInput.value = text;
+        showToast('Using sample transcript for instant summary...');
       }
 
-      if (text) {
-        // Validation: Ensure the pasted text is not a URL
-        if (text.match(/^https?:\/\/(www\.)?(youtube\.com|youtu\.be)/i)) {
-          showToast('Please paste transcript text, not a YouTube URL.');
-          return;
-        }
-      } else {
-        showToast('Please paste the transcript text first.');
-        return;
-      }
-      
       const lowerText = text.toLowerCase();
       if (lowerText.startsWith('http://') || lowerText.startsWith('https://') || lowerText.includes('youtube.com/') || lowerText.includes('youtu.be/')) {
         showToast('Please paste transcript text, not a YouTube URL.');
-        return;
-      }
-
-      // Validate length and reject if it's just a URL
-      const textWithoutUrls = text.replace(/https?:\/\/\S+/gi, '').trim();
-      const wordCount = textWithoutUrls.split(/\s+/).filter(Boolean).length;
-      
-      if (wordCount < 10) {
-        showToast('Paste the actual spoken transcript from the video, not the YouTube link.');
         return;
       }
 
@@ -369,8 +354,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnSampleTranscript && manualTranscriptInput) {
     btnSampleTranscript.addEventListener('click', () => {
-      manualTranscriptInput.value = "Modern farming uses technology to improve crop production and reduce waste. Farmers can use sensors to monitor soil moisture and crop conditions. Drip irrigation delivers water directly to plant roots and can reduce water loss. Weather information helps farmers decide when to irrigate and protect crops. Precision agriculture uses data to apply water, fertilizer, and other inputs more efficiently.";
-      showToast('Sample transcript loaded.');
+      manualTranscriptInput.value = DEFAULT_SAMPLE_TRANSCRIPT;
+      let url = youtubeUrlInput.value.trim() || "https://www.youtube.com/watch?v=sample12345";
+      showToast('Loaded sample transcript. Generating summary...');
+      processVideo(url, DEFAULT_SAMPLE_TRANSCRIPT);
     });
   }
 
