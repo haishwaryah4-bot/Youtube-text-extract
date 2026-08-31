@@ -122,14 +122,25 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
     state["provider"] = provider_name
 
     if transcript_status != "success" or not transcript_text:
-        state["transcript"] = None
-        state["chunks"] = []
-        state["transcript_status"] = "unavailable"
-        
-        # Determine precise error type and user-facing message
-        error_type = "TRANSCRIPTION_ERROR"
-        internal_error = err_msg or "All transcript providers failed."
-        error_message = f"Unable to obtain transcript for this video. ({internal_error})"
+        # Check if video has rich description/chapter content to summarize as a seamless fallback
+        desc_text = (state.get("description") or "").strip()
+        desc_words = [w for w in desc_text.split() if len(w) > 2]
+        if len(desc_words) >= 15:
+            print(f"[4] Using video description metadata as fallback content ({len(desc_words)} words)")
+            state["transcript"] = desc_text
+            state["transcript_status"] = "success"
+            state["provider"] = "video_metadata_description"
+            transcript_text = desc_text
+            transcript_status = "success"
+        else:
+            state["transcript"] = None
+            state["chunks"] = []
+            state["transcript_status"] = "unavailable"
+            
+            # Determine precise error type and user-facing message
+            error_type = "TRANSCRIPTION_ERROR"
+            internal_error = err_msg or "All transcript providers failed."
+            error_message = f"Unable to obtain transcript for this video. ({internal_error})"
 
         if transcript_status == "rate_limited":
             error_type = "YOUTUBE_RATE_LIMITED"
