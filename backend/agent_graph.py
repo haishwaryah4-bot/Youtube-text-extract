@@ -253,7 +253,8 @@ def summarize_content(state: VideoGraphState) -> VideoGraphState:
                 "main_topics": res.get("main_topics", []),
                 "key_points": res.get("key_points", {"facts": [], "explanations": [], "recommendations": []}),
                 "raw_actions": res.get("actions", []),
-                "final_summary": res.get("final_summary", "")
+                "final_summary": res.get("final_summary", ""),
+                "is_local_fallback": res.get("is_local_fallback", False)
             }
 
         import concurrent.futures
@@ -396,6 +397,7 @@ def final_review(state: VideoGraphState) -> VideoGraphState:
         }
         state["action_checklist"] = checklist
         state["final_summary"] = final_sum
+        state["is_local_fallback"] = any(s.get("is_local_fallback") for s in summaries)
 
     except Exception as e:
         state["error"] = f"Final review synthesis failed: {str(e)}"

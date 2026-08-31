@@ -226,261 +226,238 @@ class PrimaryTranscriptProvider(TranscriptProvider):
 
 
 class FallbackTranscriptProvider(TranscriptProvider):
-    """Fallback legitimate transcript provider using YouTube timedtext API or watch page scraping."""
+    """
+    Fallback provider using YouTube's InnerTube API to get session-signed caption URLs.
+    
+    YouTube's caption URLs require a session 'ei' token to return content.
+    This provider replicates what youtube-transcript-api does internally:
+    1. GET /watch?v=... to establish a session
+    2. POST /youtubei/v1/player with session context to get signed caption URLs
+    3. Fetch the actual transcript from the signed URL
+    
+    This works even from cloud IPs where the transcript XML endpoint alone fails.
+    """
+    INNERTUBE_KEY = "AIzaSyAO_FJ2SlqU8Q4STEHLGCilw_Y9_11qcW8"
+    INNERTUBE_URL = f"https://www.youtube.com/youtubei/v1/player?key={INNERTUBE_KEY}"
+
     @property
     def name(self) -> str:
-        return "YouTubeTimedText-Fallback"
+        return "YouTubeInnerTube-Fallback"
 
-    def get_transcript(self, video_id: str, timeout: float = 15.0) -> TranscriptResult:
+    def get_transcript(self, video_id: str, timeout: float = 20.0) -> TranscriptResult:
         import logging
         logger = logging.getLogger("youtube_service.fallback")
-        logger.info(f"Attempting fallback transcript retrieval for video ID: {video_id}")
-        
+
         session = _get_configured_session(timeout=timeout)
+
         try:
-            # Step 1: Try direct timedtext request first (English manually created or automated)
-            direct_urls = [
-                f"https://www.youtube.com/api/timedtext?v={video_id}&lang=en&fmt=json3",
-                f"https://www.youtube.com/api/timedtext?v={video_id}&lang=en&kind=asr&fmt=json3"
-            ]
-            
-            for url in direct_urls:
-                try:
-                    logger.info(f"Querying timedtext URL directly: {url}")
-                    response = session.get(url, timeout=timeout)
-                    if response.status_code == 200 and response.text.strip():
-                        data = response.json()
-                        result = self._parse_json3(data)
-                        if result:
-                            return result
-                    elif response.status_code == 429:
-                        logger.warning("YouTube timedtext endpoint returned HTTP 429 Rate Limited.")
-                        return TranscriptResult(
-                            transcript=None,
-                            raw_segments=[],
-                            word_count=0,
-                            status="rate_limited",
-                            provider=self.name,
-                            error="YouTube is temporarily rate-limiting or blocking automated requests from this IP."
-                        )
-                except Exception as ex:
-                    logger.debug(f"Direct timedtext query to {url} failed: {ex}")
-
-            # Step 2: Fetch watch page to extract captions tracklist from player response
+            # Step 1: GET /watch page to establish session state (required for ei token)
             watch_url = f"https://www.youtube.com/watch?v={video_id}"
-            logger.info(f"Fetching watch page to extract caption tracks: {watch_url}")
-            response = session.get(watch_url, timeout=timeout)
-            
-            if response.status_code == 429:
-                logger.warning("YouTube watch page request returned HTTP 429 Rate Limited.")
+            logger.info(f"[TRANSCRIPT] GET {watch_url}")
+            watch_resp = session.get(watch_url, timeout=timeout)
+
+            if watch_resp.status_code == 429:
                 return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="rate_limited",
-                    provider=self.name,
-                    error="YouTube is temporarily rate-limiting or blocking automated requests from this IP."
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="rate_limited", provider=self.name,
+                    error="YouTube returned 429 (rate-limited) on watch page request."
                 )
-            
-            if response.status_code != 200:
-                logger.error(f"Failed to fetch YouTube watch page (Status code: {response.status_code})")
+            if watch_resp.status_code != 200:
                 return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="error",
-                    provider=self.name,
-                    error=f"Failed to fetch YouTube watch page (Status code: {response.status_code})"
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="error", provider=self.name,
+                    error=f"YouTube watch page returned HTTP {watch_resp.status_code}"
                 )
 
-            html = response.text
-            
-            # Find captionTracks from player response
-            caption_tracks = []
-            match = re.search(r'ytInitialPlayerResponse\s*=\s*({.*?});', html)
-            if match:
-                try:
-                    player_data = json.loads(match.group(1))
-                    caption_tracks = player_data.get("captions", {}).get("playerCaptionsTracklistRenderer", {}).get("captionTracks", [])
-                    logger.info(f"Extracted {len(caption_tracks)} caption tracks from player response.")
-                except Exception as ex:
-                    logger.debug(f"Parsing ytInitialPlayerResponse failed: {ex}")
+            # Check if YouTube returned a bot/consent page instead of the real page
+            html = watch_resp.text
+            if "ytInitialPlayerResponse" not in html:
+                logger.warning("[TRANSCRIPT] Watch page missing ytInitialPlayerResponse — possible bot detection")
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="rate_limited", provider=self.name,
+                    error="YouTube returned a consent/bot-detection page instead of the watch page."
+                )
 
-            # Fallback regex search for captionTracks directly in html
+            # Step 2: POST to InnerTube player API using ANDROID client context.
+            # IMPORTANT: The WEB client context often returns 0 caption tracks for videos
+            # with only auto-generated captions. The ANDROID context reliably returns all
+            # caption tracks — this is exactly what youtube-transcript-api uses internally.
+            innertube_payload = {
+                "context": {
+                    "client": {
+                        "clientName": "ANDROID",
+                        "clientVersion": "20.10.38",
+                    }
+                },
+                "videoId": video_id
+            }
+            logger.info(f"[TRANSCRIPT] POST InnerTube player API for {video_id}")
+            player_resp = session.post(
+                self.INNERTUBE_URL,
+                json=innertube_payload,
+                timeout=timeout
+            )
+
+            if player_resp.status_code != 200:
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="error", provider=self.name,
+                    error=f"InnerTube player API returned HTTP {player_resp.status_code}"
+                )
+
+            player_data = player_resp.json()
+
+            # Check for video unavailability
+            playability = player_data.get("playabilityStatus", {})
+            if playability.get("status") in ("LOGIN_REQUIRED", "AGE_CHECK_REQUIRED", "ERROR"):
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="video_unavailable", provider=self.name,
+                    error=f"Video unavailable: {playability.get('reason', 'Unknown reason')}"
+                )
+
+            # Extract caption tracks from the InnerTube response
+            caption_tracks = (
+                player_data
+                .get("captions", {})
+                .get("playerCaptionsTracklistRenderer", {})
+                .get("captionTracks", [])
+            )
+
             if not caption_tracks:
-                match_tracks = re.search(r'"captionTracks":\s*(\[.*?\])', html)
-                if match_tracks:
+                logger.info(f"[TRANSCRIPT] InnerTube: No caption tracks for {video_id}")
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="captions_unavailable", provider=self.name,
+                    error="This video has no captions (confirmed via InnerTube API)."
+                )
+
+            logger.info(f"[TRANSCRIPT] InnerTube: Found {len(caption_tracks)} caption tracks")
+
+            # Priority: manual EN > auto EN > any manual > any auto
+            priority = []
+            for t in caption_tracks:
+                lc = t.get("languageCode", "")
+                kind = t.get("kind", "")
+                if lc.startswith("en") and kind != "asr":
+                    priority.insert(0, t)
+                elif lc.startswith("en"):
+                    priority.insert(1, t)
+                else:
+                    priority.append(t)
+
+            # Step 3: Fetch the transcript from the first working signed URL
+            for track in priority:
+                base_url = track.get("baseUrl", "")
+                lang = track.get("languageCode", "?")
+                kind = track.get("kind", "manual")
+                if not base_url:
+                    continue
+
+                # Try JSON3 first, then XML fallback
+                for fmt, parser in [("json3", self._parse_json3), ("srv1", self._parse_xml)]:
                     try:
-                        caption_tracks = json.loads(match_tracks.group(1))
-                        logger.info(f"Extracted {len(caption_tracks)} caption tracks via direct regex.")
-                    except Exception as ex:
-                        logger.debug(f"Parsing captionTracks regex match failed: {ex}")
+                        fetch_url = base_url + f"&fmt={fmt}"
+                        logger.info(f"[TRANSCRIPT] Fetching {lang}/{kind} caption in {fmt}: {fetch_url[:80]}")
+                        cap_resp = session.get(fetch_url, timeout=timeout)
 
-            if not caption_tracks:
-                logger.info("No caption tracks found for this video in page HTML.")
-                return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="captions_unavailable",
-                    provider=self.name,
-                    error="Captions/Subtitles are disabled or unavailable for this video (no caption tracks found)."
-                )
+                        if cap_resp.status_code != 200 or not cap_resp.text.strip():
+                            logger.warning(f"[TRANSCRIPT] Caption {fmt} fetch empty for {lang} (status={cap_resp.status_code})")
+                            continue
 
-            # Prioritize manual English, then auto-generated English, then any track
-            selected_track_url = None
-            for track in caption_tracks:
-                lang = track.get("languageCode", "")
-                kind = track.get("kind", "")
-                if lang.startswith("en") and kind != "asr":
-                    selected_track_url = track.get("baseUrl")
-                    logger.info(f"Selected manual English track: {selected_track_url}")
-                    break
-            
-            if not selected_track_url:
-                for track in caption_tracks:
-                    lang = track.get("languageCode", "")
-                    if lang.startswith("en"):
-                        selected_track_url = track.get("baseUrl")
-                        logger.info(f"Selected auto-generated English track: {selected_track_url}")
-                        break
+                        result = parser(cap_resp.text if fmt == "srv1" else cap_resp.json())
+                        if result and result.status == "success":
+                            logger.info(f"[TRANSCRIPT] InnerTube success: {result.word_count} words lang={lang}")
+                            return result
 
-            if not selected_track_url and caption_tracks:
-                selected_track_url = caption_tracks[0].get("baseUrl")
-                logger.info(f"Selected fallback first available track: {selected_track_url}")
-
-            if not selected_track_url:
-                logger.warning("No suitable caption track URL found.")
-                return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="captions_unavailable",
-                    provider=self.name,
-                    error="No suitable English caption track found."
-                )
-
-            # Ensure JSON3 format is requested for parsing ease
-            if "fmt=json3" not in selected_track_url:
-                selected_track_url += "&fmt=json3"
-
-            logger.info(f"Fetching selected track URL: {selected_track_url}")
-            track_response = session.get(selected_track_url, timeout=timeout)
-            
-            if track_response.status_code == 429:
-                logger.warning("YouTube timedtext baseUrl query returned HTTP 429 Rate Limited.")
-                return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="rate_limited",
-                    provider=self.name,
-                    error="YouTube is temporarily rate-limiting or blocking automated requests from this IP."
-                )
-
-            if track_response.status_code == 200 and track_response.text.strip():
-                data = track_response.json()
-                result = self._parse_json3(data)
-                if result:
-                    return result
+                    except Exception as fetch_err:
+                        logger.warning(f"[TRANSCRIPT] Caption fetch failed for {lang}/{fmt}: {fetch_err}")
+                        continue
 
             return TranscriptResult(
-                transcript=None,
-                raw_segments=[],
-                word_count=0,
-                status="captions_unavailable",
-                provider=self.name,
-                error="Could not parse or fetch any valid subtitle track content."
+                transcript=None, raw_segments=[], word_count=0,
+                status="captions_unavailable", provider=self.name,
+                error="Caption tracks found but all returned empty content."
             )
 
         except Exception as e:
             error_name = type(e).__name__
             error_str = str(e)
-            logger.error(f"Error during fallback retrieval: {error_name}: {error_str}")
-            
-            if any(k in error_name or k in error_str for k in ("IpBlocked", "RequestBlocked", "BOT_DETECTED", "TooManyRequests", "429")):
+            logger.error(f"[TRANSCRIPT] FallbackTranscriptProvider error: {error_name}: {error_str}")
+
+            if any(k in error_str for k in ("429", "TooManyRequests", "IpBlocked")):
                 return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="rate_limited",
-                    provider=self.name,
-                    error="YouTube is temporarily rate-limiting or blocking automated requests from this IP."
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="rate_limited", provider=self.name,
+                    error="YouTube rate-limited this server."
                 )
-            
-            if any(k in error_name or k in error_str for k in ("Timeout", "time out", "timed out", "TimeoutError")):
-                return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="error",
-                    provider=self.name,
-                    error=f"Fallback transcript request timed out: {error_str}"
-                )
-            
             return TranscriptResult(
-                transcript=None,
-                raw_segments=[],
-                word_count=0,
-                status="captions_unavailable",
-                provider=self.name,
-                error=f"Fallback transcript provider error: {error_str}"
+                transcript=None, raw_segments=[], word_count=0,
+                status="error", provider=self.name,
+                error=f"FallbackTranscriptProvider error: {error_str}"
             )
 
-    def _parse_json3(self, data: Dict[str, Any]) -> Optional[TranscriptResult]:
+    def _parse_json3(self, data: dict) -> Optional["TranscriptResult"]:
+        """Parse YouTube's JSON3 caption format."""
         events = data.get("events", [])
         raw_segments = []
         for event in events:
             if "segs" in event:
                 text = "".join(seg.get("utf8", "") for seg in event["segs"]).strip()
                 if text:
-                    text = text.replace('\n', ' ').strip()
-                    start_ms = event.get("tStartMs", 0)
-                    duration_ms = event.get("dDurationMs", 0)
                     raw_segments.append({
-                        "text": text,
-                        "start": start_ms / 1000.0,
-                        "duration": duration_ms / 1000.0
+                        "text": text.replace("\n", " ").strip(),
+                        "start": event.get("tStartMs", 0) / 1000.0,
+                        "duration": event.get("dDurationMs", 0) / 1000.0
                     })
-        
+        return self._build_result(raw_segments)
+
+    def _parse_xml(self, xml_text: str) -> Optional["TranscriptResult"]:
+        """Parse YouTube's SRV1/XML caption format."""
+        import xml.etree.ElementTree as ET
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError:
+            return None
+        raw_segments = []
+        for text_el in root.iter("text"):
+            text = (text_el.text or "").strip()
+            if text:
+                start = float(text_el.get("start", 0))
+                dur = float(text_el.get("dur", 0))
+                raw_segments.append({"text": text, "start": start, "duration": dur})
+        return self._build_result(raw_segments)
+
+    def _build_result(self, raw_segments: list) -> Optional["TranscriptResult"]:
+        """Build a TranscriptResult from raw segments."""
         if not raw_segments:
             return None
-
-        # Format transcript with timestamps
         formatted_lines = []
-        total_text_parts = []
+        plain_parts = []
         for seg in raw_segments:
-            start_sec = int(seg.get('start', 0))
-            mins = start_sec // 60
-            secs = start_sec % 60
-            time_str = f"[{mins:02d}:{secs:02d}]"
-            text = seg.get('text', '')
-            if text:
-                formatted_lines.append(f"{time_str} {text}")
-                total_text_parts.append(text)
+            text = seg.get("text", "").strip()
+            if not text:
+                continue
+            plain_parts.append(text)
+            start_sec = int(seg.get("start", 0))
+            mins, secs = divmod(start_sec, 60)
+            formatted_lines.append(f"[{mins:02d}:{secs:02d}] {text}")
 
-        full_transcript_text = "\n".join(formatted_lines)
-        plain_text = " ".join(total_text_parts)
-        total_words = len(plain_text.split())
-
-        if total_words < 10:
+        full_text = "\n".join(formatted_lines)
+        word_count = len(" ".join(plain_parts).split())
+        if word_count < 10:
             return TranscriptResult(
-                transcript=None,
-                raw_segments=raw_segments,
-                word_count=total_words,
-                status="captions_unavailable",
-                provider=self.name,
-                error=f"Transcript contains too few words ({total_words} words)."
+                transcript=None, raw_segments=raw_segments, word_count=word_count,
+                status="captions_unavailable", provider=self.name,
+                error=f"Transcript too short ({word_count} words)."
             )
-
         return TranscriptResult(
-            transcript=full_transcript_text,
-            raw_segments=raw_segments,
-            word_count=total_words,
-            status="success",
-            provider=self.name,
-            error=None
+            transcript=full_text, raw_segments=raw_segments,
+            word_count=word_count, status="success",
+            provider=self.name, error=None
         )
+
 
 
 class WhisperAudioTranscriptProvider(TranscriptProvider):

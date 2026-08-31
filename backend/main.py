@@ -223,7 +223,8 @@ async def analyze_youtube(request):
             "tools_materials": tools_materials,
             "precautions": precautions,
             "pdf_path": pdf_path,
-            "error": error
+            "error": error,
+            "is_local_fallback": res.get("is_local_fallback", False)
         }
         return JSONResponse(response_payload)
 

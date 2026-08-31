@@ -519,7 +519,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     // Show the video and details in the left column
-    displayVideoTitle.textContent = data.title || 'Untitled Video';
+    let titleHtml = data.title || 'Untitled Video';
+    if (data.is_local_fallback) {
+      titleHtml += ` <span class="badge" style="background-color: var(--success); color: white; font-size: 0.75rem; padding: 2px 6px; border-radius: 4px; margin-left: 8px; vertical-align: middle;">Free Local Summary Mode</span>`;
+    }
+    displayVideoTitle.innerHTML = titleHtml;
     displayVideoAuthor.textContent = data.author || 'Unknown Channel';
     
     // Embed Player
