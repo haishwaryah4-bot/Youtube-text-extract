@@ -514,10 +514,17 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
         # yt-dlp options: use a realistic user-agent + request headers
         # to reduce bot-detection risk on cloud server IPs.
         ydl_opts = {
-            'format': 'worstaudio[ext=m4a]/worstaudio/bestaudio',
+            'format': 'worstaudio[ext=m4a]/bestaudio[ext=m4a]/worstaudio/bestaudio',
             'outtmpl': out_tmpl,
             'quiet': True,
             'no_warnings': True,
+            'extractor_args': {
+                'youtube': {
+                    'player_client': ['android', 'ios', 'web_creator'],
+                    'player_skip': ['webpage', 'configs', 'js'],
+                }
+            },
+            'nocheckcertificate': True,
             'http_headers': {
                 'User-Agent': (
                     'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -527,8 +534,8 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
                 'Accept-Language': 'en-US,en;q=0.9',
             },
             'socket_timeout': 30,
-            'retries': 1,          # Do NOT hammer YouTube if blocked
-            'fragment_retries': 1,
+            'retries': 2,
+            'fragment_retries': 2,
         }
         
         # Capture yt-dlp stderr/stdout to detect bot-check errors
@@ -688,23 +695,36 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
 
 
 class TranscriptManager:
-    """Coordinates transcript providers with strict rate-limit protection and fallback.
+    """Coordinates transcript providers with caching, retries, and comprehensive fallback.
     
-    Provider chain (no yt-dlp):
-      1. PrimaryTranscriptProvider  — youtube-transcript-api (all languages, auto-generated)
-      2. FallbackTranscriptProvider — YouTube timedtext API / watch page scraping
+    Provider chain:
+      1. PrimaryTranscriptProvider     — youtube-transcript-api (all languages, auto-generated)
+      2. FallbackTranscriptProvider    — YouTube InnerTube API / session-signed scraper
+      3. WhisperAudioTranscriptProvider — Server-side audio stream + Whisper ASR transcription
     """
+    _cache: Dict[str, Tuple[TranscriptResult, float]] = {}
+    CACHE_TTL_SECONDS = 86400  # 24 hours
+
     def __init__(self, providers: Optional[List[TranscriptProvider]] = None):
         self.providers: List[TranscriptProvider] = providers or [
             PrimaryTranscriptProvider(),
             FallbackTranscriptProvider(),
-            # WhisperAudioTranscriptProvider is intentionally excluded.
-            # yt-dlp cannot be used on Vercel serverless (YouTube bot-check blocks cloud IPs).
+            WhisperAudioTranscriptProvider(),
         ]
 
     def fetch_transcript(self, video_id: str, timeout: float = 15.0) -> TranscriptResult:
+        import time
         import logging
         logger = logging.getLogger("youtube_service.manager")
+        
+        # Check in-memory cache
+        now = time.time()
+        if video_id in self._cache:
+            cached_res, timestamp = self._cache[video_id]
+            if now - timestamp < self.CACHE_TTL_SECONDS and cached_res.status == "success":
+                logger.info(f"[TRANSCRIPT] Cache hit for video_id={video_id} (provider={cached_res.provider})")
+                print(f"[TRANSCRIPT] Cache hit for {video_id}")
+                return cached_res
         
         last_result = TranscriptResult(
             transcript=None,
@@ -716,19 +736,41 @@ class TranscriptManager:
         )
 
         for provider in self.providers:
-            logger.info(f"Attempting transcript retrieval with provider: {provider.name}")
-            # Whisper needs much more time than the default 15s for downloading and API calls
-            provider_timeout = 300.0 if "Whisper" in provider.name else timeout
-            result = provider.get_transcript(video_id, timeout=provider_timeout)
+            logger.info(f"[TRANSCRIPT] VIDEO_ID={video_id} → Attempting provider: {provider.name}")
+            print(f"[TRANSCRIPT] Attempting provider: {provider.name} for {video_id}")
             
-            if result.status == "success":
-                logger.info(f"Success with transcript provider: {provider.name}")
-                return result
+            provider_timeout = 300.0 if "Whisper" in provider.name else timeout
+            
+            # Retry with exponential backoff for transient network issues
+            max_attempts = 2 if "Primary" in provider.name else 1
+            for attempt in range(max_attempts):
+                try:
+                    result = provider.get_transcript(video_id, timeout=provider_timeout)
+                    if result.status == "success":
+                        logger.info(f"[TRANSCRIPT] VIDEO_ID={video_id} → SUCCESS via {provider.name} ({result.word_count} words)")
+                        print(f"[TRANSCRIPT] SUCCESS via {provider.name} for {video_id}")
+                        self._cache[video_id] = (result, now)
+                        return result
+                    
+                    last_result = result
+                    logger.warning(f"[TRANSCRIPT] VIDEO_ID={video_id} → {provider.name} failed (attempt {attempt+1}/{max_attempts}): status={result.status}, error={result.error}")
+                    
+                    if result.status in ("video_unavailable", "bot_check"):
+                        # Don't retry this specific provider if permanently blocked
+                        break
+                        
+                except Exception as ex:
+                    logger.error(f"[TRANSCRIPT] VIDEO_ID={video_id} → {provider.name} exception: {ex}")
+                    last_result = TranscriptResult(
+                        transcript=None, raw_segments=[], word_count=0,
+                        status="error", provider=provider.name,
+                        error=str(ex)
+                    )
+                
+                if attempt < max_attempts - 1:
+                    time.sleep(1.0 * (attempt + 1))
 
-            logger.warning(f"Provider {provider.name} failed. Status: {result.status}. Error: {result.error}")
-            last_result = result
-
-        logger.error(f"All transcript providers failed for video {video_id}.")
+        logger.error(f"[TRANSCRIPT] VIDEO_ID={video_id} → All transcript providers failed.")
         return last_result
 
 

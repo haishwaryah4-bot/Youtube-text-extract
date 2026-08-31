@@ -138,44 +138,28 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
             state["transcript_status"] = "unavailable"
             
             # Determine precise error type and user-facing message
-            error_type = "TRANSCRIPTION_ERROR"
             internal_error = err_msg or "All transcript providers failed."
-            error_message = f"Unable to obtain transcript for this video. ({internal_error})"
 
-        if transcript_status == "rate_limited":
-            error_type = "YOUTUBE_RATE_LIMITED"
-            error_message = "YouTube is temporarily rate-limiting automated requests from this server. You can paste the transcript below for instant free summarization."
-        elif transcript_status == "bot_check":
-            error_type = "YOUTUBE_BOT_CHECK"
-            error_message = "YouTube requires sign-in verification for this video. You can paste the transcript below for instant free summarization."
-        elif transcript_status == "video_unavailable":
-            error_type = "TRANSCRIPTION_ERROR"
-            error_message = "Automatic transcript retrieval failed for this video. You can paste the transcript below for instant free summarization."
-        elif transcript_status == "captions_unavailable":
-            error_type = "YOUTUBE_CAPTIONS_UNAVAILABLE"
-            error_message = "This video has no accessible automatic captions. You can paste the transcript below for instant free summarization."
-        elif "OpenAI API key is missing" in str(err_msg):
-            error_type = "OPENAI_CONFIGURATION_ERROR"
-            error_message = "OpenAI API key is not configured on this server. You can paste the transcript below for instant free summarization."
-        elif "timed out" in str(err_msg).lower() or "timeout" in str(err_msg).lower():
-            error_type = "TRANSCRIPTION_TIMEOUT"
-            error_message = "Transcript retrieval timed out. You can paste the transcript below for instant free summarization."
-        else:
-            error_type = "TRANSCRIPTION_ERROR"
-            error_message = "Automatic transcript retrieval failed. You can paste the transcript below for instant free summarization."
+            if transcript_status == "video_unavailable":
+                error_type = "VIDEO_UNAVAILABLE"
+                error_message = "This video is private or unavailable."
+            elif transcript_status in ("rate_limited", "bot_check"):
+                error_type = "VIDEO_ACCESS_ERROR"
+                error_message = "This video could not be accessed."
+            elif "25MB limit" in str(err_msg) or "too long" in str(err_msg).lower():
+                error_type = "VIDEO_TOO_LONG"
+                error_message = "The video is too long for the current processing limit."
+            elif "audio" in str(err_msg).lower() or "whisper" in str(err_msg).lower():
+                error_type = "AUDIO_PROCESSING_ERROR"
+                error_message = "The video audio could not be processed."
+            else:
+                error_type = "TRANSCRIPTION_ERROR"
+                error_message = "Automatic transcript retrieval failed. You can paste the transcript below for instant free summarization."
 
-        # Log the internal error server-side for debugging
-        import logging
-        logging.getLogger("agent_graph").error(
-            f"[TRANSCRIPT] All providers failed for video. "
-            f"Status={transcript_status} Provider={provider_name} InternalError={internal_error}"
-        )
-
-        state["error"] = error_message
-        state["error_type"] = error_type
-        state["internal_error"] = internal_error   # safe server-side detail, never shown to user
-            
-        return state
+            state["error"] = error_message
+            state["error_type"] = error_type
+            state["internal_error"] = internal_error
+            return state
 
     # Legitimate transcript successfully retrieved
     state["transcript"] = transcript_text

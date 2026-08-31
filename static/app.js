@@ -386,8 +386,8 @@ document.addEventListener('DOMContentLoaded', () => {
     startTimer();
     clearStepperTimeouts();
 
-    // Stage 1: URL Validation
-    updateStepper(1, 'Validating YouTube URL...', 'Checking URL format and video availability');
+    // Stage 1: Reading video
+    updateStepper(1, 'Reading video...', 'Parsing URL and retrieving video details');
 
     try {
       stepperTimeouts.push(setTimeout(() => {
@@ -395,29 +395,24 @@ document.addEventListener('DOMContentLoaded', () => {
         if (manualTranscript) {
           updateStepper(2, 'Using Custom Transcript...', 'Pasted text accepted successfully');
         } else {
-          updateStepper(2, 'Fetching Captions or Transcribing Audio...', 'Retrieving or extracting audio transcripts');
+          updateStepper(2, 'Getting transcript...', 'Retrieving creator or auto-generated captions');
         }
       }, 700));
 
       stepperTimeouts.push(setTimeout(() => {
         if (!timerInterval) return;
-        updateStepper(3, 'Processing Video Content...', 'Analyzing full transcript context with LangGraph');
-      }, 1800));
+        updateStepper(3, 'Captions unavailable — using audio transcription...', 'Connecting to audio stream fallback');
+      }, 2000));
 
       stepperTimeouts.push(setTimeout(() => {
         if (!timerInterval) return;
-        updateStepper(4, 'Generating complete summary...', 'Formulating overview & key points');
-      }, 3000));
+        updateStepper(4, 'Transcribing audio...', 'Processing speech-to-text transcription');
+      }, 3500));
 
       stepperTimeouts.push(setTimeout(() => {
         if (!timerInterval) return;
-        updateStepper(5, 'Extracting actions...', 'Distinguishing demonstrated vs recommended instructions');
-      }, 4200));
-
-      stepperTimeouts.push(setTimeout(() => {
-        if (!timerInterval) return;
-        updateStepper(6, 'Generating PDF Document...', 'Compiling professionally formatted report');
-      }, 5500));
+        updateStepper(5, 'Generating answer...', 'Synthesizing overview, key points, and action items');
+      }, 5000));
 
       // Call the standardized POST /api/youtube/analyze endpoint
       const bodyPayload = {
@@ -443,13 +438,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Check if request or transcript retrieval failed
       if (!response.ok || !data.success || data.transcript_status !== 'success') {
-        let userFacingError = 'Automatic transcript retrieval failed. You can paste the transcript below for instant free summarization.';
-        
-        // Only if the backend explicitly proved the video is completely inaccessible
-        if (data.error_type === 'VIDEO_UNAVAILABLE') {
-            // Keep the generic prompt so the user can still try pasting their own
-        }
-
+        let userFacingError = data.error || 'Automatic transcript retrieval failed. You can paste the transcript below for instant free summarization.';
         throw new Error(userFacingError);
       }
 
@@ -457,8 +446,8 @@ document.addEventListener('DOMContentLoaded', () => {
       currentVideoId = data.video_id;
       chatHistory = [];
 
-      // Stage 7: Complete
-      updateStepper(7, 'Complete!', 'All summary sections and PDF report ready.');
+      // Stage 6: Done
+      updateStepper(6, 'Done', 'All summary sections and PDF report ready.');
       stepperTimeouts.push(setTimeout(() => {
         stopTimer();
         progressSection.classList.add('hidden');
