@@ -75,138 +75,154 @@ class TranscriptProvider(ABC):
 
 
 class PrimaryTranscriptProvider(TranscriptProvider):
-    """Primary provider using youtube-transcript-api with configured socket timeouts."""
+    """Primary provider using youtube-transcript-api.
+    
+    Uses api.list() to discover ALL available transcripts (manual + auto-generated,
+    any language), then tries them in priority order:
+    1. Manual English
+    2. Auto-generated English
+    3. Any manual transcript
+    4. Any auto-generated transcript
+    """
     @property
     def name(self) -> str:
         return "YouTubeTranscriptApi-Primary"
 
-    def _execute_api_fetch(self, video_id: str, socket_timeout: float = 8.0) -> List[Dict[str, Any]]:
+    def _fetch_all_transcripts(self, video_id: str, socket_timeout: float = 10.0) -> TranscriptResult:
+        """Try to fetch transcript using list() to discover all available tracks."""
+        import logging
+        logger = logging.getLogger("youtube_service.primary")
         session = _get_configured_session(timeout=socket_timeout)
         api = YouTubeTranscriptApi(http_client=session)
-        
-        raw_segments = []
-        if hasattr(api, "fetch"):
-            fetched = api.fetch(video_id)
-            snippets = getattr(fetched, "snippets", fetched)
-            for s in snippets:
-                if hasattr(s, "text"):
-                    raw_segments.append({
-                        "text": getattr(s, "text", ""),
-                        "start": getattr(s, "start", 0),
-                        "duration": getattr(s, "duration", 0)
-                    })
-                elif isinstance(s, dict):
-                    raw_segments.append(s)
-        elif hasattr(YouTubeTranscriptApi, "get_transcript"):
-            raw_segments = YouTubeTranscriptApi.get_transcript(video_id)
-        else:
-            raise YouTubeServiceError("Transcript API interface not recognized.", "API_VERSION_ERROR")
-            
-        return raw_segments
+
+        # List all available transcripts for this video
+        transcript_list = api.list(video_id)
+
+        # Build priority order: manual EN > auto EN > any manual > any auto
+        candidates = list(transcript_list)
+        priority = []
+
+        # 1. Manual English
+        for t in candidates:
+            if t.language_code.startswith("en") and not t.is_generated:
+                priority.append(t)
+        # 2. Auto-generated English
+        for t in candidates:
+            if t.language_code.startswith("en") and t.is_generated:
+                priority.append(t)
+        # 3. Any other manual
+        for t in candidates:
+            if not t.language_code.startswith("en") and not t.is_generated:
+                priority.append(t)
+        # 4. Any other auto-generated
+        for t in candidates:
+            if not t.language_code.startswith("en") and t.is_generated:
+                priority.append(t)
+
+        if not priority:
+            return TranscriptResult(
+                transcript=None, raw_segments=[], word_count=0,
+                status="captions_unavailable", provider=self.name,
+                error="No transcript tracks are available for this video."
+            )
+
+        last_error = "No transcript tracks could be fetched."
+        for transcript_obj in priority:
+            try:
+                logger.info(f"Trying transcript: lang={transcript_obj.language_code}, generated={transcript_obj.is_generated}")
+                fetched = transcript_obj.fetch()
+                snippets = getattr(fetched, "snippets", fetched)
+
+                raw_segments = []
+                for s in snippets:
+                    if hasattr(s, "text"):
+                        raw_segments.append({
+                            "text": getattr(s, "text", ""),
+                            "start": getattr(s, "start", 0),
+                            "duration": getattr(s, "duration", 0)
+                        })
+                    elif isinstance(s, dict):
+                        raw_segments.append(s)
+
+                if not raw_segments:
+                    continue
+
+                # Build formatted transcript
+                formatted_lines = []
+                plain_parts = []
+                for seg in raw_segments:
+                    text = seg.get("text", "").strip()
+                    if not text:
+                        continue
+                    plain_parts.append(text)
+                    start_sec = int(seg.get("start", 0))
+                    mins, secs = divmod(start_sec, 60)
+                    formatted_lines.append(f"[{mins:02d}:{secs:02d}] {text}")
+
+                full_text = "\n".join(formatted_lines)
+                word_count = len(" ".join(plain_parts).split())
+
+                if word_count < 10:
+                    last_error = f"Transcript too short ({word_count} words)."
+                    continue
+
+                logger.info(f"Successfully fetched transcript ({word_count} words, lang={transcript_obj.language_code})")
+                return TranscriptResult(
+                    transcript=full_text,
+                    raw_segments=raw_segments,
+                    word_count=word_count,
+                    status="success",
+                    provider=self.name,
+                    error=None
+                )
+            except Exception as fetch_err:
+                last_error = str(fetch_err)
+                logger.warning(f"Failed to fetch transcript (lang={transcript_obj.language_code}): {fetch_err}")
+                continue
+
+        return TranscriptResult(
+            transcript=None, raw_segments=[], word_count=0,
+            status="captions_unavailable", provider=self.name,
+            error=f"All available transcript tracks failed: {last_error}"
+        )
 
     def get_transcript(self, video_id: str, timeout: float = 15.0) -> TranscriptResult:
-        raw_segments = []
-        socket_timeout = min(8.0, timeout)
-        
+        import logging
+        logger = logging.getLogger("youtube_service.primary")
+        socket_timeout = min(10.0, timeout)
+
         try:
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
-                future = executor.submit(self._execute_api_fetch, video_id, socket_timeout)
-                raw_segments = future.result(timeout=timeout)
+                future = executor.submit(self._fetch_all_transcripts, video_id, socket_timeout)
+                return future.result(timeout=timeout)
         except concurrent.futures.TimeoutError:
             return TranscriptResult(
-                transcript=None,
-                raw_segments=[],
-                word_count=0,
-                status="error",
-                provider=self.name,
+                transcript=None, raw_segments=[], word_count=0,
+                status="error", provider=self.name,
                 error=f"Primary transcript request timed out after {int(timeout)} seconds."
             )
         except Exception as e:
             error_name = type(e).__name__
             error_str = str(e)
-            
+
             if any(k in error_name or k in error_str for k in ("IpBlocked", "RequestBlocked", "BOT_DETECTED", "TooManyRequests", "429")):
                 return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="rate_limited",
-                    provider=self.name,
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="rate_limited", provider=self.name,
                     error="YouTube is temporarily rate-limiting or blocking automated requests from this IP."
-                )
-            elif any(k in error_name or k in error_str for k in ("TranscriptsDisabled", "NoTranscriptFound", "Subtitles are disabled", "NoTranscriptAvailable")):
-                return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="captions_unavailable",
-                    provider=self.name,
-                    error="Captions/Subtitles are disabled or unavailable for this video."
                 )
             elif any(k in error_name or k in error_str for k in ("VideoUnavailable", "AgeRestricted", "PrivateVideo")):
                 return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="video_unavailable",
-                    provider=self.name,
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="video_unavailable", provider=self.name,
                     error="Video is private, age-restricted, removed, or unavailable."
                 )
             else:
                 return TranscriptResult(
-                    transcript=None,
-                    raw_segments=[],
-                    word_count=0,
-                    status="error",
-                    provider=self.name,
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="error", provider=self.name,
                     error=f"Transcript retrieval error: {error_str}"
                 )
-
-        if not raw_segments:
-            return TranscriptResult(
-                transcript=None,
-                raw_segments=[],
-                word_count=0,
-                status="captions_unavailable",
-                provider=self.name,
-                error="Captions are empty for this video."
-            )
-
-        # Format transcript with timestamps
-        formatted_lines = []
-        total_text_parts = []
-        for seg in raw_segments:
-            start_sec = int(seg.get('start', 0))
-            mins = start_sec // 60
-            secs = start_sec % 60
-            time_str = f"[{mins:02d}:{secs:02d}]"
-            text = seg.get('text', '').replace('\n', ' ').strip()
-            if text:
-                formatted_lines.append(f"{time_str} {text}")
-                total_text_parts.append(text)
-
-        full_transcript_text = "\n".join(formatted_lines)
-        plain_text = " ".join(total_text_parts)
-        total_words = len(plain_text.split())
-
-        if total_words < 10:
-            return TranscriptResult(
-                transcript=None,
-                raw_segments=raw_segments,
-                word_count=total_words,
-                status="captions_unavailable",
-                provider=self.name,
-                error=f"Transcript contains too few words ({total_words} words)."
-            )
-
-        return TranscriptResult(
-            transcript=full_transcript_text,
-            raw_segments=raw_segments,
-            word_count=total_words,
-            status="success",
-            provider=self.name,
-            error=None
-        )
 
 
 class FallbackTranscriptProvider(TranscriptProvider):
@@ -695,12 +711,19 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
 
 
 class TranscriptManager:
-    """Coordinates transcript providers with strict rate-limit protection and fallback."""
+    """Coordinates transcript providers with strict rate-limit protection and fallback.
+    
+    Provider chain (no yt-dlp):
+      1. PrimaryTranscriptProvider  — youtube-transcript-api (all languages, auto-generated)
+      2. FallbackTranscriptProvider — YouTube timedtext API / watch page scraping
+    """
     def __init__(self, providers: Optional[List[TranscriptProvider]] = None):
         self.providers: List[TranscriptProvider] = providers or [
             PrimaryTranscriptProvider(),
             FallbackTranscriptProvider(),
-            WhisperAudioTranscriptProvider()
+            # WhisperAudioTranscriptProvider is NOT included here.
+            # yt-dlp cannot be used on Vercel serverless (YouTube bot-check blocks cloud IPs).
+            # The WhisperAudioTranscriptProvider class still exists for optional local use.
         ]
 
     def fetch_transcript(self, video_id: str, timeout: float = 15.0) -> TranscriptResult:
