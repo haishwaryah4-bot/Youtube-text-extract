@@ -132,11 +132,20 @@ async def analyze_youtube(request):
         }, status_code=400)
 
     # Execute LangGraph Workflow
-    res = run_youtube_analysis(
-        youtube_url=youtube_url,
-        api_key=custom_api_key if custom_api_key else None,
-        transcript=custom_transcript
-    )
+    try:
+        res = run_youtube_analysis(
+            youtube_url=youtube_url,
+            api_key=custom_api_key if custom_api_key else None,
+            transcript=custom_transcript
+        )
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        return JSONResponse({
+            "success": False,
+            "error": f"An unexpected backend error occurred: {str(e)}",
+            "error_type": "INTERNAL_SERVER_ERROR"
+        }, status_code=200) # Must be 200 so frontend parses it cleanly, or handled in frontend
 
     print(f"[9] Response returned to frontend. Status: {res.get('transcript_status', 'error')}, Error: {res.get('error', 'None')}")
 

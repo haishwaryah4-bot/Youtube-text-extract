@@ -432,7 +432,12 @@ document.addEventListener('DOMContentLoaded', () => {
         body: JSON.stringify(bodyPayload)
       });
 
-      const data = await response.json();
+      let data;
+      try {
+        data = await response.json();
+      } catch (e) {
+        throw new Error("Backend returned an invalid response (not JSON). The server might be down or experiencing a critical error.");
+      }
 
       // Check if request or transcript retrieval failed
       if (!response.ok || !data.success || data.transcript_status !== 'success') {

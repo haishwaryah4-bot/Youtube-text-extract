@@ -498,8 +498,21 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
                 error="OpenAI API key is missing or invalid. Cannot use audio transcription fallback."
             )
             
-        temp_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / "temp"
-        temp_dir.mkdir(exist_ok=True)
+        import tempfile
+        if os.environ.get("VERCEL") == "1" or os.environ.get("AWS_EXECUTION_ENV"):
+            temp_dir = Path(tempfile.gettempdir()) / "temp"
+        else:
+            temp_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / "temp"
+            
+        try:
+            temp_dir.mkdir(exist_ok=True)
+        except Exception as e:
+            logger.error(f"Failed to create temp directory: {e}")
+            return TranscriptResult(
+                transcript=None, raw_segments=[], word_count=0,
+                status="error", provider=self.name,
+                error=f"Could not create temporary directory for audio extraction: {e}"
+            )
         
         out_tmpl = str(temp_dir / f"{video_id}.%(ext)s")
         
