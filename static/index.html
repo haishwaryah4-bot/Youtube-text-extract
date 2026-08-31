@@ -269,37 +269,22 @@
             <i data-lucide="alert-triangle" class="icon-error"></i>
           </div>
           <div class="error-content">
-            <h3 class="error-title" id="errorTitle">Processing Error</h3>
-            <p class="error-desc" id="errorMessage">Unable to process video.</p>
-            <div class="error-actions">
-              <button id="btnRetry" class="btn btn-secondary btn-sm">
-                <i data-lucide="rotate-cw" class="icon-xs"></i>
-                <span>Try Again</span>
-              </button>
-            </div>
+            <h3 class="error-title" id="errorTitle">⚠ Automatic transcript unavailable</h3>
+            <p class="error-desc" id="errorMessage">Paste the video's transcript below and get a free instant summary.</p>
 
             <!-- Manual Fallback Paste Area -->
             <div id="manualFallbackContainer" class="manual-fallback-area">
-              <h4 class="fallback-heading">Or, Paste Video Transcript Manually</h4>
-              
-              <div class="fallback-instructions" style="font-size: 0.9em; margin-bottom: 12px; background: rgba(0,0,0,0.03); padding: 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.05);">
-                <p style="margin: 0 0 8px 0; font-weight: 600; color: #1f2937;">How to get the transcript:</p>
-                <ol style="margin: 0; padding-left: 20px; color: #4b5563;">
-                  <li>Open the video on YouTube.</li>
-                  <li>Click the three dots (&hellip;) below the video.</li>
-                  <li>Select &lsquo;Show transcript&rsquo;.</li>
-                  <li>Copy the transcript text and paste it below.</li>
-                </ol>
-                <p style="margin: 8px 0 0 0; font-size: 0.85em; color: #ef4444; font-weight: 500;">
-                  The video URL cannot be summarized without captions or transcript text.
-                </p>
-              </div>
-
               <textarea id="manualTranscriptInput" class="fallback-textarea" placeholder="Paste transcript text here"></textarea>
-              <button id="btnSubmitManual" class="btn btn-primary btn-sm btn-glow">
-                <i data-lucide="sparkles" class="icon-xs"></i>
-                <span>Analyze Pasted Transcript</span>
-              </button>
+              <div style="display: flex; gap: 10px; margin-top: 10px;">
+                <button id="btnSubmitManual" class="btn btn-primary btn-sm btn-glow">
+                  <i data-lucide="sparkles" class="icon-xs"></i>
+                  <span>✨ Analyze Transcript</span>
+                </button>
+                <button id="btnSampleTranscript" class="btn btn-secondary btn-sm" style="flex: 1;">
+                  <i data-lucide="file-text" class="icon-xs"></i>
+                  <span>Try Sample Transcript</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>

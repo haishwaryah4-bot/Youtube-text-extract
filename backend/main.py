@@ -131,6 +131,10 @@ async def analyze_youtube(request):
             "error": "youtube_url is required."
         }, status_code=400)
 
+    # If manual transcript is provided, ALWAYS bypass API and use local summarizer
+    if custom_transcript:
+        custom_api_key = "sk-placeholder"
+
     # Execute LangGraph Workflow
     try:
         res = run_youtube_analysis(

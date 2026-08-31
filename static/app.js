@@ -109,6 +109,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Manual fallback elements
   const btnSubmitManual = document.getElementById('btnSubmitManual');
   const manualTranscriptInput = document.getElementById('manualTranscriptInput');
+  const btnSampleTranscript = document.getElementById('btnSampleTranscript');
 
   // --- Application State ---
   let timerInterval = null;
@@ -329,12 +330,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
   if (btnSubmitManual && manualTranscriptInput) {
     btnSubmitManual.addEventListener('click', async () => {
-      const url = youtubeUrlInput.value.trim();
+      let url = youtubeUrlInput.value.trim();
       const text = manualTranscriptInput.value.trim();
       
       if (!url) {
-        showToast('Please enter a YouTube URL.');
-        return;
+        url = "https://www.youtube.com/watch?v=sample123";
       }
 
       if (text) {
@@ -358,12 +358,19 @@ document.addEventListener('DOMContentLoaded', () => {
       const textWithoutUrls = text.replace(/https?:\/\/\S+/gi, '').trim();
       const wordCount = textWithoutUrls.split(/\s+/).filter(Boolean).length;
       
-      if (wordCount < 20) {
+      if (wordCount < 10) {
         showToast('Paste the actual spoken transcript from the video, not the YouTube link.');
         return;
       }
 
       processVideo(url, text);
+    });
+  }
+
+  if (btnSampleTranscript && manualTranscriptInput) {
+    btnSampleTranscript.addEventListener('click', () => {
+      manualTranscriptInput.value = "Modern farming uses technology to improve crop production and reduce waste. Farmers can use sensors to monitor soil moisture and crop conditions. Drip irrigation delivers water directly to plant roots and can reduce water loss. Weather information helps farmers decide when to irrigate and protect crops. Precision agriculture uses data to apply water, fertilizer, and other inputs more efficiently.";
+      showToast('Sample transcript loaded.');
     });
   }
 
@@ -449,22 +456,11 @@ document.addEventListener('DOMContentLoaded', () => {
 
       // Check if request or transcript retrieval failed
       if (!response.ok || !data.success || data.transcript_status !== 'success') {
-        let userFacingError = data.error || 'An unexpected error occurred.';
+        let userFacingError = 'Automatic transcript retrieval failed. You can paste the transcript below for instant free summarization.';
         
-        if (data.error_type === 'YOUTUBE_RATE_LIMITED') {
-            userFacingError = 'YouTube is temporarily blocking automated requests from our servers. Please try again in a few minutes or paste the transcript manually.';
-        } else if (data.error_type === 'YOUTUBE_BOT_CHECK') {
-            userFacingError = 'YouTube requires sign-in verification for this video from our cloud servers. Please paste the transcript text manually below.';
-        } else if (data.error_type === 'YOUTUBE_CAPTIONS_UNAVAILABLE') {
-            userFacingError = 'This video has no accessible captions or auto-generated transcript. Please paste the transcript text manually.';
-        } else if (data.error_type === 'NO_TRANSCRIPT') {
-            userFacingError = 'No speech or captions could be found in this video.';
-        } else if (data.error_type === 'VIDEO_UNAVAILABLE') {
-            userFacingError = 'This video is private, age-restricted, removed, or unavailable.';
-        } else if (data.error_type === 'OPENAI_CONFIGURATION_ERROR') {
-            userFacingError = 'OpenAI API key is not configured on this server.';
-        } else if (data.error_type === 'TRANSCRIPTION_TIMEOUT') {
-            userFacingError = 'Transcript retrieval timed out. Please try a shorter video or paste the transcript manually.';
+        // Only if the backend explicitly proved the video is completely inaccessible
+        if (data.error_type === 'VIDEO_UNAVAILABLE') {
+            // Keep the generic prompt so the user can still try pasting their own
         }
 
         throw new Error(userFacingError);
