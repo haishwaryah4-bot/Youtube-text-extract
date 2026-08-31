@@ -475,6 +475,7 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
 
     def get_transcript(self, video_id: str, timeout: float = 300.0) -> TranscriptResult:
         import os
+        import io
         import logging
         import requests
         from pathlib import Path
@@ -500,12 +501,12 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
             
         import tempfile
         if os.environ.get("VERCEL") == "1" or os.environ.get("AWS_EXECUTION_ENV"):
-            temp_dir = Path(tempfile.gettempdir()) / "temp"
+            temp_dir = Path(tempfile.gettempdir()) / "yt_audio"
         else:
             temp_dir = Path(os.path.dirname(os.path.abspath(__file__))).parent / "temp"
             
         try:
-            temp_dir.mkdir(exist_ok=True)
+            temp_dir.mkdir(parents=True, exist_ok=True)
         except Exception as e:
             logger.error(f"Failed to create temp directory: {e}")
             return TranscriptResult(
@@ -515,31 +516,108 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
             )
         
         out_tmpl = str(temp_dir / f"{video_id}.%(ext)s")
+        youtube_url = f"https://www.youtube.com/watch?v={video_id}"
         
-        # 1. Download lowest bitrate audio
+        # yt-dlp options: use a realistic user-agent + request headers
+        # to reduce bot-detection risk on cloud server IPs.
         ydl_opts = {
             'format': 'worstaudio[ext=m4a]/worstaudio/bestaudio',
             'outtmpl': out_tmpl,
             'quiet': True,
             'no_warnings': True,
+            'http_headers': {
+                'User-Agent': (
+                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+                    'AppleWebKit/537.36 (KHTML, like Gecko) '
+                    'Chrome/127.0.0.0 Safari/537.36'
+                ),
+                'Accept-Language': 'en-US,en;q=0.9',
+            },
+            'socket_timeout': 30,
+            'retries': 1,          # Do NOT hammer YouTube if blocked
+            'fragment_retries': 1,
         }
+        
+        # Capture yt-dlp stderr/stdout to detect bot-check errors
+        import io as _io
+        error_buffer = _io.StringIO()
+        
+        class _LogCapture:
+            """Capture yt-dlp log messages into a buffer."""
+            def debug(self, msg):
+                pass
+            def info(self, msg):
+                pass
+            def warning(self, msg):
+                error_buffer.write(msg + "\n")
+            def error(self, msg):
+                error_buffer.write(msg + "\n")
+        
+        ydl_opts['logger'] = _LogCapture()
         
         try:
             print(f"[5] Fallback transcription started (Whisper) for {video_id}...")
             logger.info(f"Downloading audio for {video_id} using yt-dlp...")
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                ydl.download([f"https://www.youtube.com/watch?v={video_id}"])
+                ydl.download([youtube_url])
                 
+        except Exception as e:
+            captured = error_buffer.getvalue()
+            raw_err = str(e) + "\n" + captured
+            
+            # ---- Detect YouTube bot-check / sign-in required ----
+            bot_check_signals = (
+                "Sign in to confirm",
+                "confirm you're not a bot",
+                "sign in",
+                "bot",
+                "cookies",
+                "Use --cookies",
+                "429",
+                "Too Many Requests",
+            )
+            if any(s.lower() in raw_err.lower() for s in bot_check_signals):
+                logger.warning(f"yt-dlp bot-check detected for {video_id}. Cannot download audio from this server.")
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="bot_check",
+                    provider=self.name,
+                    error=(
+                        "YouTube is requiring sign-in to access this video from our servers. "
+                        "Audio transcription is unavailable for this video in the cloud environment. "
+                        "Please paste the video transcript manually."
+                    )
+                )
+            
+            # Other download error
+            logger.error(f"yt-dlp download failed: {e}")
+            return TranscriptResult(
+                transcript=None, raw_segments=[], word_count=0,
+                status="error", provider=self.name,
+                error=f"Audio download failed: {e}"
+            )
+        
+        # ---- Audio downloaded, now transcribe ----
+        try:
             possible_files = list(temp_dir.glob(f"{video_id}.*"))
             if not possible_files:
-                raise Exception("Audio file was not created.")
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="error", provider=self.name,
+                    error="Audio file was not created after yt-dlp download."
+                )
             audio_path = str(possible_files[0])
             
-            # Check file size < 25MB
-            if os.path.getsize(audio_path) > 25 * 1024 * 1024:
-                raise Exception("Audio file exceeds the 25MB limit for transcription API.")
+            # Reject files > 25 MB (Whisper API limit)
+            file_size = os.path.getsize(audio_path)
+            if file_size > 25 * 1024 * 1024:
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="error", provider=self.name,
+                    error="Audio file exceeds the 25MB limit for the transcription API."
+                )
                 
-            logger.info(f"Sending audio {os.path.basename(audio_path)} to Audio Transcription API...")
+            logger.info(f"Sending audio {os.path.basename(audio_path)} ({file_size // 1024}KB) to Whisper API...")
             
             api_url = "https://api.openai.com/v1/audio/transcriptions"
             model_name = "whisper-1"
@@ -548,7 +626,7 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
                 model_name = "whisper-large-v3"
             
             with open(audio_path, "rb") as f:
-                response = requests.post(
+                resp = requests.post(
                     api_url,
                     headers={"Authorization": f"Bearer {api_key}"},
                     files={"file": (os.path.basename(audio_path), f)},
@@ -556,15 +634,19 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
                     timeout=timeout
                 )
                 
-            if response.status_code != 200:
+            if resp.status_code != 200:
                 try:
-                    err_json = response.json()
-                    err_msg = err_json.get("error", {}).get("message", response.text)
+                    err_json = resp.json()
+                    err_msg = err_json.get("error", {}).get("message", resp.text[:300])
                 except Exception:
-                    err_msg = response.text
-                raise Exception(f"Transcription API Error ({response.status_code}): {err_msg}")
+                    err_msg = resp.text[:300]
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="error", provider=self.name,
+                    error=f"Transcription API error ({resp.status_code}): {err_msg}"
+                )
                 
-            data = response.json()
+            data = resp.json()
             raw_segments = []
             if "segments" in data:
                 for seg in data["segments"]:
@@ -573,12 +655,18 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
                         "start": seg.get("start", 0),
                         "duration": seg.get("end", 0) - seg.get("start", 0)
                     })
-                    
+            elif "text" in data:
+                # Flat response fallback
+                raw_segments = [{"text": data["text"].strip(), "start": 0, "duration": 0}]
+                
             if not raw_segments:
-                raise Exception("Whisper returned empty transcript.")
+                return TranscriptResult(
+                    transcript=None, raw_segments=[], word_count=0,
+                    status="error", provider=self.name,
+                    error="Whisper returned an empty transcript."
+                )
                 
             full_text = " ".join([s["text"] for s in raw_segments])
-            
             print("[6] Speech-to-text succeeded")
             return TranscriptResult(
                 transcript=full_text,
@@ -591,19 +679,19 @@ class WhisperAudioTranscriptProvider(TranscriptProvider):
             
         except Exception as e:
             print(f"[6] Speech-to-text failed: {e}")
-            logger.error(f"Whisper fallback failed: {e}")
+            logger.error(f"Whisper transcription failed: {e}")
             return TranscriptResult(
                 transcript=None, raw_segments=[], word_count=0,
                 status="error", provider=self.name,
-                error=str(e)
+                error=f"Transcription failed: {e}"
             )
         finally:
-            # Clean up all temp files matching video_id
+            # Always clean up temp files
             try:
                 for f in temp_dir.glob(f"{video_id}.*"):
                     f.unlink(missing_ok=True)
-            except Exception as e:
-                logger.error(f"Failed to clean up temp file: {e}")
+            except Exception as cleanup_err:
+                logger.warning(f"Could not clean up temp file: {cleanup_err}")
 
 
 class TranscriptManager:

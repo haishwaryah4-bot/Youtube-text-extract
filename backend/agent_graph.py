@@ -132,6 +132,12 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
         if transcript_status == "rate_limited":
             error_type = "YOUTUBE_RATE_LIMITED"
             error_message = "YouTube is currently rate-limiting automated transcript requests."
+        elif transcript_status == "bot_check":
+            error_type = "YOUTUBE_BOT_CHECK"
+            error_message = (
+                "YouTube is requiring sign-in verification to access this video from our cloud servers. "
+                "This video cannot be automatically transcribed. Please paste the transcript manually."
+            )
         elif transcript_status == "video_unavailable":
             error_type = "VIDEO_UNAVAILABLE"
             error_message = "This video is private, age-restricted, removed, or unavailable."

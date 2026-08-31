@@ -453,12 +453,14 @@ document.addEventListener('DOMContentLoaded', () => {
         
         if (data.error_type === 'YOUTUBE_RATE_LIMITED') {
             userFacingError = 'YouTube is temporarily blocking automated access from our servers. Please try a different video or paste the transcript manually.';
+        } else if (data.error_type === 'YOUTUBE_BOT_CHECK') {
+            userFacingError = 'YouTube requires sign-in verification for this video from our cloud servers. Automated audio transcription is unavailable. Please paste the transcript text manually below.';
         } else if (data.error_type === 'NO_TRANSCRIPT') {
             userFacingError = 'No speech or captions could be found in this video.';
         } else if (data.error_type === 'VIDEO_UNAVAILABLE') {
             userFacingError = 'This video is private, age-restricted, removed, or unavailable.';
         } else if (data.error_type === 'OPENAI_CONFIGURATION_ERROR') {
-            userFacingError = 'OpenAI API key missing. Cannot process the audio fallback.';
+            userFacingError = 'OpenAI API key is not configured. Cannot process the audio fallback.';
         }
 
         throw new Error(userFacingError);
