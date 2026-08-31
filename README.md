@@ -60,10 +60,19 @@ PORT=8000
 ```
 *(If no API key is set, the application uses deterministic grounded extraction algorithms).*
 
-### 3. Run the Application
+### 3. Bypassing YouTube Rate Limiting (Optional)
+If your server IP address is rate-limited or blocked by YouTube when fetching transcripts, you can easily bypass this by:
+1. Installing a browser extension like **Get cookies.txt LOCALLY** (Chrome/Firefox).
+2. Exporting your YouTube cookies as a Netscape formatted `cookies.txt` file.
+3. Placing the `cookies.txt` file directly in the root directory of this project.
+
+The application automatically loads these cookies to authenticate requests, instantly bypassing rate-limiting.
+
+### 4. Run the Application
 ```bash
 python run.py
 ```
+
 
 Open your browser at [http://localhost:8000](http://localhost:8000).
 

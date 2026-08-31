@@ -22,6 +22,7 @@ class VideoGraphState(TypedDict, total=False):
     video_id: str
     title: str
     author: str
+    description: str
     thumbnail_url: str
     transcript: Optional[str]
     transcript_status: str  # "success" | "rate_limited" | "captions_unavailable" | "video_unavailable" | "error"
@@ -59,14 +60,16 @@ def validate_input(state: VideoGraphState) -> VideoGraphState:
                 state["provider"] = "none"
                 return state
             video_id = YouTubeService.extract_video_id(url)
+            print(f"[2] Video ID extracted: {video_id}")
             state["video_id"] = video_id
 
         # Fetch metadata if title or author is missing
-        if not state.get("title") or not state.get("author"):
+        if not state.get("title") or not state.get("author") or not state.get("description"):
             meta = YouTubeService.fetch_video_metadata(video_id)
             state["title"] = meta.get("title", f"YouTube Video ({video_id})")
             state["author"] = meta.get("author", "YouTube Creator")
             state["thumbnail_url"] = meta.get("thumbnail_url", f"https://img.youtube.com/vi/{video_id}/hqdefault.jpg")
+            state["description"] = meta.get("description", "")
 
     except YouTubeServiceError as e:
         state["error"] = f"URL Validation Error: {e.message}"
@@ -89,14 +92,26 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
     existing_transcript = state.get("transcript")
 
     if existing_transcript and existing_transcript.strip():
-        # Pre-supplied transcript from client or verified test source
+        # Validate pre-supplied transcript from client or verified test source
         transcript_text = existing_transcript.strip()
-        transcript_status = "success"
-        provider_name = "client_supplied"
-        err_msg = None
+        # Check if it's just a URL or too short
+        clean_for_check = re.sub(r'https?://\S+', '', transcript_text).strip()
+        word_count = len(clean_for_check.split())
+        
+        if word_count < 10:
+            transcript_status = "invalid_transcript"
+            provider_name = "client_supplied"
+            err_msg = "Provided custom transcript is invalid or too short. Please paste the actual transcript text."
+            transcript_text = None
+        else:
+            transcript_status = "success"
+            provider_name = "client_supplied"
+            err_msg = None
     else:
         # Fetch from YouTube service provider architecture
+        print(f"[3] Transcript retrieval started for {video_id}")
         t_res: TranscriptResult = YouTubeService.fetch_transcript_result(video_id)
+        print(f"[4] Transcript retrieval finished. Status: {t_res.status}, Provider: {t_res.provider}")
         transcript_status = t_res.status
         transcript_text = t_res.transcript
         provider_name = t_res.provider
@@ -105,11 +120,17 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
     state["transcript_status"] = transcript_status
     state["provider"] = provider_name
 
-    # If no legitimate transcript is available, strictly set transcript to None
     if transcript_status != "success" or not transcript_text:
         state["transcript"] = None
         state["chunks"] = []
-        state["error"] = err_msg or f"Transcript unavailable ({transcript_status})."
+        state["transcript_status"] = "unavailable"
+        
+        # Determine clear error message
+        if transcript_status == "rate_limited" or (err_msg and any(re.search(rf'\b{x}\b', err_msg.lower()) for x in ("rate limit", "block", "429", "too many requests", "bot", "ip limit", "ip address"))):
+            state["error"] = "YouTube is currently rate-limiting automated transcript requests. Transcript-based analysis is unavailable for this video at the moment."
+        else:
+            state["error"] = err_msg or "Transcript-based analysis is unavailable for this video at the moment."
+            
         return state
 
     # Legitimate transcript successfully retrieved
@@ -173,33 +194,43 @@ def summarize_content(state: VideoGraphState) -> VideoGraphState:
     title = state.get("title", "YouTube Video")
     author = state.get("author", "YouTube Creator")
     api_key = state.get("api_key")
+    description = state.get("description", "")
 
     try:
         processor = AIProcessor(api_key=api_key)
-        summaries: List[Dict[str, Any]] = []
+        print(f"[7] LLM summarization started for {len(chunks)} chunks...")
 
-        for chunk in chunks:
+        def process_chunk(chunk):
             c_text = chunk.get("text", "")
             c_id = chunk.get("chunk_id", 1)
             
             res = processor.process_transcript(
                 title=f"{title} (Part {c_id})" if len(chunks) > 1 else title,
                 author=author,
-                transcript_text=c_text
+                transcript_text=c_text,
+                video_desc=description
             )
 
-            summaries.append({
+            return {
                 "chunk_id": c_id,
                 "overview": res.get("overview", ""),
                 "main_topics": res.get("main_topics", []),
                 "key_points": res.get("key_points", {"facts": [], "explanations": [], "recommendations": []}),
                 "raw_actions": res.get("actions", []),
                 "final_summary": res.get("final_summary", "")
-            })
+            }
 
+        import concurrent.futures
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(chunks) or 1)) as executor:
+            summaries = list(executor.map(process_chunk, chunks))
+
+        print("[8] LLM summarization succeeded")
+        # Sort summaries by chunk_id to keep original sequence order
+        summaries.sort(key=lambda x: x["chunk_id"])
         state["summaries"] = summaries
 
     except Exception as e:
+        print(f"[8] LLM summarization failed: {e}")
         state["error"] = f"Content summarization error: {str(e)}"
 
     return state
@@ -246,6 +277,9 @@ def extract_actions(state: VideoGraphState) -> VideoGraphState:
 
 def deduplicate_actions(state: VideoGraphState) -> VideoGraphState:
     """Node 5: Deduplicate actions across chunks and merge steps."""
+    if state.get("error"):
+        return state
+
     actions = state.get("actions", [])
     if not actions:
         state["actions"] = []
@@ -282,6 +316,9 @@ def deduplicate_actions(state: VideoGraphState) -> VideoGraphState:
 
 def final_review(state: VideoGraphState) -> VideoGraphState:
     """Node 6: Synthesize overview, main topics, key points, checklist, and final summary."""
+    if state.get("error"):
+        return state
+
     summaries = state.get("summaries", [])
     title = state.get("title", "YouTube Video")
     author = state.get("author", "YouTube Creator")
@@ -348,7 +385,8 @@ def generate_pdf(state: VideoGraphState) -> VideoGraphState:
         "key_points": state.get("key_points", {}),
         "actions": state.get("actions", []),
         "action_checklist": state.get("action_checklist", []),
-        "final_summary": state.get("final_summary", "")
+        "final_summary": state.get("final_summary", ""),
+        "error": state.get("error")
     }
 
     try:
@@ -460,3 +498,128 @@ class LangGraphAgent:
             author=author
         )
         return res
+
+
+class LangGraphWorkflow:
+    """Compatibility wrapper for testing individual LangGraph nodes."""
+    def __init__(self):
+        self.graph = compiled_graph
+
+    def validate_transcript(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        res = validate_input(state)
+        if res.get("error") and "errors" in res:
+            res["errors"].append(res["error"])
+        elif res.get("error"):
+            res["errors"] = [res["error"]]
+        return res
+
+    def clean_transcript(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        transcript_text = state.get("transcript", "")
+        if not transcript_text:
+            state["cleaned_transcript"] = ""
+            return state
+        lines = transcript_text.splitlines()
+        cleaned_lines = []
+        for line in lines:
+            trimmed = line.strip()
+            if not trimmed:
+                continue
+            trimmed = re.sub(r'\[(?:Music|Applause|Laughter|Cheering|Audio|Silence)\]', '', trimmed, flags=re.IGNORECASE)
+            trimmed = re.sub(r'\((?:Music|Applause|Laughter|Cheering|Audio|Silence)\)', '', trimmed, flags=re.IGNORECASE)
+            trimmed = re.sub(r'\s+', ' ', trimmed).strip()
+            if trimmed and not re.match(r'^\[\d+:\d+\]$', trimmed):
+                cleaned_lines.append(trimmed)
+        state["cleaned_transcript"] = "\n".join(cleaned_lines)
+        return state
+
+    def chunk_transcript(self, state: Dict[str, Any], max_words=350, overlap_words=40) -> Dict[str, Any]:
+        cleaned_text = state.get("cleaned_transcript", "")
+        cleaned_lines = cleaned_text.splitlines()
+        chunks = []
+        current_chunk_lines = []
+        current_word_count = 0
+        chunk_idx = 1
+
+        for line in cleaned_lines:
+            line_words = len(line.split())
+            current_chunk_lines.append(line)
+            current_word_count += line_words
+
+            if current_word_count >= max_words:
+                chunks.append({
+                    "chunk_id": chunk_idx,
+                    "text": "\n".join(current_chunk_lines),
+                    "word_count": current_word_count
+                })
+                chunk_idx += 1
+                if overlap_words > 0 and len(current_chunk_lines) > 2:
+                    current_chunk_lines = current_chunk_lines[-2:]
+                    current_word_count = sum(len(l.split()) for l in current_chunk_lines)
+                else:
+                    current_chunk_lines = []
+                    current_word_count = 0
+
+        if current_chunk_lines:
+            chunks.append({
+                "chunk_id": chunk_idx,
+                "text": "\n".join(current_chunk_lines),
+                "word_count": sum(len(l.split()) for l in current_chunk_lines)
+            })
+
+        state["chunks"] = chunks
+        return state
+
+    def summarize_chunks(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        res = summarize_content(state)
+        if res.get("error") and "errors" in res:
+            res["errors"].append(res["error"])
+        elif res.get("error"):
+            res["errors"] = [res["error"]]
+        return res
+
+    def extract_actions(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        res = extract_actions(state)
+        if res.get("error") and "errors" in res:
+            res["errors"].append(res["error"])
+        elif res.get("error"):
+            res["errors"] = [res["error"]]
+        return res
+
+    def deduplicate_actions(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        res = deduplicate_actions(state)
+        if res.get("error") and "errors" in res:
+            res["errors"].append(res["error"])
+        elif res.get("error"):
+            res["errors"] = [res["error"]]
+        return res
+
+    def final_review(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        res = final_review(state)
+        if res.get("error") and "errors" in res:
+            res["errors"].append(res["error"])
+        elif res.get("error"):
+            res["errors"] = [res["error"]]
+        return res
+
+    def generate_pdf(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        res = generate_pdf(state)
+        if res.get("error") and "errors" in res:
+            res["errors"].append(res["error"])
+        elif res.get("error"):
+            res["errors"] = [res["error"]]
+        return res
+
+    def run(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        # Prepopulate state for the actual LangGraph compiled graph run
+        # Wait, the compiled graph starts with validate_input which expects youtube_url.
+        # But in test_langgraph_nodes.py step 9, fresh_state has transcript, youtube_url, etc.
+        # The compiled graph has:
+        # START -> validate_input -> prepare_transcript -> check_transcript_success
+        # If transcript is already present in state, prepare_transcript uses it.
+        res = self.graph.invoke(state)
+        if res.get("error") and "errors" in res:
+            res["errors"].append(res["error"])
+        elif res.get("error"):
+            res["errors"] = [res["error"]]
+        return res
+

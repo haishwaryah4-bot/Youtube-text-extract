@@ -10,6 +10,10 @@ from starlette.staticfiles import StaticFiles
 from starlette.middleware import Middleware
 from starlette.middleware.cors import CORSMiddleware
 
+# Load environment variables
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
 # Ensure project root is in sys.path
 BASE_DIR = Path(__file__).resolve().parent.parent
 if str(BASE_DIR) not in sys.path:
@@ -20,7 +24,11 @@ from backend.ai_processor import AIProcessor
 from backend.agent_graph import LangGraphAgent, run_youtube_analysis
 from backend.pdf_generator import PDFReportGenerator
 
-PDF_OUTPUT_DIR = str(BASE_DIR / "generated_pdfs")
+import tempfile
+if os.environ.get("VERCEL") == "1" or os.environ.get("AWS_EXECUTION_ENV"):
+    PDF_OUTPUT_DIR = os.path.join(tempfile.gettempdir(), "generated_pdfs")
+else:
+    PDF_OUTPUT_DIR = str(BASE_DIR / "generated_pdfs")
 os.makedirs(PDF_OUTPUT_DIR, exist_ok=True)
 
 # In-memory store for fast retrieval & chat grounding
@@ -29,6 +37,15 @@ ai_processor = AIProcessor()
 
 async def health_check(request):
     return JSONResponse({"status": "ok", "service": "YouTube Video Intelligence & Action Extractor"})
+
+async def config_check(request):
+    """
+    GET /api/config/check
+    Safely return whether OpenAI API Key is configured without exposing it.
+    """
+    key = os.getenv("OPENAI_API_KEY", "").strip()
+    is_configured = bool(key and key != "sk-placeholder" and len(key) > 20)
+    return JSONResponse({"OpenAI configured": is_configured})
 
 async def get_samples(request):
     """Return pre-tested YouTube sample URLs for instant 1-click testing."""
@@ -94,6 +111,8 @@ async def analyze_youtube(request):
     custom_api_key = (body.get("api_key") or "").strip()
     custom_transcript = body.get("transcript")
 
+    print(f"\n[1] YouTube URL received: {youtube_url}")
+
     if not youtube_url:
         return JSONResponse({
             "success": False,
@@ -118,6 +137,8 @@ async def analyze_youtube(request):
         api_key=custom_api_key if custom_api_key else None,
         transcript=custom_transcript
     )
+
+    print(f"[9] Response returned to frontend. Status: {res.get('transcript_status', 'error')}, Error: {res.get('error', 'None')}")
 
     video_id = res.get("video_id", "")
     title = res.get("title", "")
@@ -156,7 +177,6 @@ async def analyze_youtube(request):
         pdf_path = res.get("pdf_path") or os.path.join(PDF_OUTPUT_DIR, f"report_{video_id}.pdf")
         summary = res.get("final_summary") or res.get("overview", "")
 
-        # Cache for interactive QA and streaming
         processed_store[video_id] = {
             "metadata": {
                 "video_id": video_id,
@@ -182,14 +202,19 @@ async def analyze_youtube(request):
             "author": author,
             "transcript_status": transcript_status,
             "transcript_provider": transcript_provider,
+            "raw_transcript": transcript_text,
             "summary": summary,
-            "key_points": key_points,
+            "overview": res.get("overview", summary),
+            "main_topics": res.get("main_topics", []),
+            "key_points": kp_dict,
+            "final_summary": res.get("final_summary", ""),
+            "action_checklist": res.get("action_checklist", []),
             "demonstrated_actions": demonstrated_actions,
             "recommended_actions": recommended_actions,
             "tools_materials": tools_materials,
             "precautions": precautions,
             "pdf_path": pdf_path,
-            "error": None
+            "error": error
         }
         return JSONResponse(response_payload)
 
@@ -263,6 +288,7 @@ async def chat_with_video(request):
 # Route Definitions
 routes = [
     Route("/api/health", health_check, methods=["GET"]),
+    Route("/api/config/check", config_check, methods=["GET"]),
     Route("/api/samples", get_samples, methods=["GET"]),
     Route("/api/validate-url", validate_url, methods=["POST"]),
     Route("/api/youtube/analyze", analyze_youtube, methods=["POST"]),

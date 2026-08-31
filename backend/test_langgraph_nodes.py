@@ -67,6 +67,8 @@ def test_each_node():
     state = workflow.summarize_chunks(state)
     el = time.time() - t0
     summaries = state.get("summaries", [])
+    if len(summaries) != len(chunks):
+        print("SUMMARIZE ERROR:", state.get("error"))
     assert len(summaries) == len(chunks), f"Expected {len(chunks)} summaries, got {len(summaries)}"
     print(f"4. summarize_chunks node:     [PASS] ({el:.4f}s) -> Summarized {len(summaries)} chunks independently.")
 

@@ -90,6 +90,27 @@ class PDFReportGenerator:
         pdf.line(18, pdf.get_y(), pdf.w - 18, pdf.get_y())
         pdf.ln(5)
 
+        # Downstream processing warning banner if error exists
+        error_msg = data.get("error")
+        if error_msg:
+            pdf.set_fill_color(254, 242, 242) # Red 50
+            pdf.set_draw_color(252, 165, 165) # Red 300
+            pdf.set_line_width(0.4)
+            start_y = pdf.get_y()
+            pdf.set_font("Helvetica", "B", 9.5)
+            pdf.set_text_color(185, 28, 28) # Red 700
+            
+            pdf.set_x(22)
+            # We want to display label and error clearly
+            clean_err = pdf.clean_text(f"Processing Warning: {error_msg}")
+            pdf.multi_cell(pdf.w - 44, 5.5, clean_err, fill=True, border=1)
+            
+            # Left red highlight bar
+            pdf.set_draw_color(220, 38, 38) # Red 600
+            pdf.set_line_width(1.5)
+            pdf.line(22, start_y, 22, pdf.get_y())
+            pdf.ln(4)
+
         # Section A: Video Overview
         pdf.chapter_title("A. Video Overview")
         overview_text = pdf.clean_text(data.get("overview", "No overview provided."))
@@ -221,11 +242,47 @@ class PDFReportGenerator:
                     pdf.set_font("Helvetica", "B", 9)
                     pdf.set_text_color(30, 41, 59)
                     pdf.cell(0, 5, "Step-by-Step Instructions:", ln=True)
-                    pdf.set_font("Helvetica", "", 9)
-                    pdf.set_text_color(51, 65, 85)
                     for step_idx, step in enumerate(steps, 1):
                         pdf.set_x(26)
-                        pdf.multi_cell(0, 4.8, f"{step_idx}. {pdf.clean_text(step)}")
+                        if isinstance(step, dict):
+                            step_num = step.get("step_number", step_idx)
+                            what = pdf.clean_text(step.get("what_to_do", ""))
+                            why = pdf.clean_text(step.get("why_it_matters", ""))
+                            stools = step.get("tools_resources", [])
+                            scautions = step.get("prerequisites_cautions", [])
+                            ts = pdf.clean_text(step.get("timestamp", ""))
+                            ts_str = f" {ts}" if ts and ts != "unavailable" else ""
+                            evidence = pdf.clean_text(step.get("evidence", ""))
+
+                            # Draw step title and timestamp
+                            pdf.set_font("Helvetica", "B", 9)
+                            pdf.set_text_color(15, 23, 42)
+                            pdf.cell(0, 5, f"{step_num}. {what}{ts_str}", ln=True)
+                            
+                            # Draw step details
+                            pdf.set_font("Helvetica", "", 8.5)
+                            pdf.set_text_color(71, 85, 105)
+                            if why:
+                                pdf.set_x(30)
+                                pdf.multi_cell(0, 4.2, f"Why it matters: {why}")
+                            if stools:
+                                pdf.set_x(30)
+                                pdf.multi_cell(0, 4.2, f"Tools/Resources: {', '.join(stools) if isinstance(stools, list) else str(stools)}")
+                            if scautions:
+                                pdf.set_x(30)
+                                pdf.multi_cell(0, 4.2, f"Prerequisites/Cautions: {', '.join(scautions) if isinstance(scautions, list) else str(scautions)}")
+                            if evidence:
+                                pdf.set_x(30)
+                                pdf.set_font("Helvetica", "I", 8)
+                                pdf.set_text_color(100, 116, 139)
+                                pdf.multi_cell(0, 4.0, f"Source excerpt: \"{evidence}\"")
+                                pdf.set_font("Helvetica", "", 8.5)
+                                pdf.set_text_color(71, 85, 105)
+                            pdf.ln(1)
+                        else:
+                            pdf.set_font("Helvetica", "", 9)
+                            pdf.set_text_color(51, 65, 85)
+                            pdf.multi_cell(0, 4.8, f"{step_idx}. {pdf.clean_text(step)}")
 
                 # Extra details
                 tools = act.get("tools_materials", [])

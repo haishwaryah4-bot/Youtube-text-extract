@@ -5,7 +5,7 @@ class TranscriptResult(BaseModel):
     transcript: Optional[str] = None
     raw_segments: List[Dict[str, Any]] = Field(default_factory=list)
     word_count: int = 0
-    status: Literal["success", "rate_limited", "captions_unavailable", "video_unavailable", "error"] = "error"
+    status: Literal["success", "rate_limited", "captions_unavailable", "video_unavailable", "error", "unavailable"] = "error"
     provider: str = "none"
     error: Optional[str] = None
 

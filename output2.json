@@ -1,0 +1,16 @@
+{
+  "success": false,
+  "video_id": "MOCK_NO_CAP",
+  "title": "YouTube Video (MOCK_NO_CAP)",
+  "author": "YouTube Creator",
+  "transcript_status": "unavailable",
+  "transcript_provider": "YouTubeTranscriptApi-Primary",
+  "summary": "",
+  "key_points": [],
+  "demonstrated_actions": [],
+  "recommended_actions": [],
+  "tools_materials": [],
+  "precautions": [],
+  "pdf_path": null,
+  "error": "Video is private, age-restricted, removed, or unavailable."
+}

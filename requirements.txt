@@ -6,4 +6,4 @@ requests>=2.31.0
 python-dotenv>=1.0.1
 langgraph>=0.0.26
 langchain-core>=0.1.30
-
+yt-dlp>=2023.11.16

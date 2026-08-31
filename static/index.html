@@ -68,54 +68,8 @@
         </div>
 
         <div class="hero-right">
-          <div class="workflow-panel glass-panel">
-            <div class="workflow-header">
-              <span class="dot red"></span>
-              <span class="dot yellow"></span>
-              <span class="dot green"></span>
-              <span class="workflow-title">processing_pipeline.json</span>
-            </div>
-            <div class="workflow-nodes">
-              <div class="node">
-                <i data-lucide="youtube" class="node-icon icon-cyan"></i>
-                <div class="node-content">
-                  <div class="node-title">YouTube URL</div>
-                  <div class="node-desc">Target Video Stream</div>
-                </div>
-              </div>
-              <div class="node-connector"></div>
-              <div class="node">
-                <i data-lucide="file-text" class="node-icon icon-cyan"></i>
-                <div class="node-content">
-                  <div class="node-title">Transcript Track</div>
-                  <div class="node-desc">Timestamped Segments</div>
-                </div>
-              </div>
-              <div class="node-connector"></div>
-              <div class="node">
-                <i data-lucide="cpu" class="node-icon icon-purple"></i>
-                <div class="node-content">
-                  <div class="node-title">AI Analysis</div>
-                  <div class="node-desc">LangGraph StateGraph</div>
-                </div>
-              </div>
-              <div class="node-connector"></div>
-              <div class="node">
-                <i data-lucide="check-square" class="node-icon icon-purple"></i>
-                <div class="node-content">
-                  <div class="node-title">Actions Extracted</div>
-                  <div class="node-desc">Steps, Tools, Precautions</div>
-                </div>
-              </div>
-              <div class="node-connector"></div>
-              <div class="node">
-                <i data-lucide="file-down" class="node-icon icon-blue"></i>
-                <div class="node-content">
-                  <div class="node-title">PDF Generation</div>
-                  <div class="node-desc">Downloadable Report</div>
-                </div>
-              </div>
-            </div>
+          <div class="hero-image-wrapper">
+            <img src="assets/hero_image.jpg" alt="YouTube Analytics Dashboard" class="hero-image" />
           </div>
         </div>
       </section>
@@ -148,8 +102,8 @@
             </div>
 
             <button type="submit" id="btnProcess" class="btn btn-primary btn-glow">
-              <i data-lucide="play" class="icon-sm"></i>
-              <span>Process Video</span>
+              <i data-lucide="file-text" class="icon-sm"></i>
+              <span>Summarize Now</span>
             </button>
           </form>
 
@@ -298,8 +252,21 @@
             <!-- Manual Fallback Paste Area -->
             <div id="manualFallbackContainer" class="manual-fallback-area">
               <h4 class="fallback-heading">Or, Paste Video Transcript Manually</h4>
-              <p class="fallback-sub">Since automated retrieval was blocked/unavailable, paste the transcript below to proceed with the analysis:</p>
-              <textarea id="manualTranscriptInput" class="fallback-textarea" placeholder="Paste the transcript text here..."></textarea>
+              
+              <div class="fallback-instructions" style="font-size: 0.9em; margin-bottom: 12px; background: rgba(0,0,0,0.03); padding: 12px; border-radius: 6px; border: 1px solid rgba(0,0,0,0.05);">
+                <p style="margin: 0 0 8px 0; font-weight: 600; color: #1f2937;">How to get the transcript:</p>
+                <ol style="margin: 0; padding-left: 20px; color: #4b5563;">
+                  <li>Open the video on YouTube.</li>
+                  <li>Click the three dots (&hellip;) below the video.</li>
+                  <li>Select &lsquo;Show transcript&rsquo;.</li>
+                  <li>Copy the transcript text and paste it below.</li>
+                </ol>
+                <p style="margin: 8px 0 0 0; font-size: 0.85em; color: #ef4444; font-weight: 500;">
+                  The video URL cannot be summarized without captions or transcript text.
+                </p>
+              </div>
+
+              <textarea id="manualTranscriptInput" class="fallback-textarea" placeholder="Paste transcript text here"></textarea>
               <button id="btnSubmitManual" class="btn btn-primary btn-sm btn-glow">
                 <i data-lucide="sparkles" class="icon-xs"></i>
                 <span>Analyze Pasted Transcript</span>
@@ -309,284 +276,66 @@
         </div>
       </section>
 
-
       <!-- Results Dashboard -->
       <section id="resultsSection" class="results-section hidden">
-        <!-- Top Video Summary Header Card -->
-        <div class="video-meta-card glass-panel">
-          <div class="video-preview-wrapper">
-            <div class="video-embed-container" id="videoEmbedBox">
-              <iframe id="videoIframe" src="" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
-            </div>
-          </div>
-
-          <div class="video-details-column">
-            <div class="video-meta-badges">
-              <span class="badge badge-success"><i data-lucide="check-circle" class="icon-xxs"></i> Transcript Verified</span>
-              <span class="badge badge-info" id="badgeWordCount"><i data-lucide="align-left" class="icon-xxs"></i> 0 words</span>
-              <span class="badge badge-purple" id="badgeActionCount"><i data-lucide="check-square" class="icon-xxs"></i> 0 Actions</span>
-            </div>
-
-            <h2 class="video-title" id="displayVideoTitle">Video Title</h2>
-            <p class="video-author"><i data-lucide="user" class="icon-xs"></i> <span id="displayVideoAuthor">Channel</span></p>
-
-            <div class="video-action-buttons">
-              <a id="btnDownloadPdf" href="#" class="btn btn-primary btn-glow" download>
-                <i data-lucide="download" class="icon-sm"></i>
-                <span>Download PDF Report</span>
-              </a>
-              <button id="btnJumpPdfTab" class="btn btn-secondary">
-                <i data-lucide="file-text" class="icon-sm"></i>
-                <span>View PDF In-Page</span>
-              </button>
-              <button id="btnJumpChecklist" class="btn btn-secondary">
-                <i data-lucide="list-todo" class="icon-sm"></i>
-                <span>Action Checklist</span>
-              </button>
-            </div>
+        <!-- Warning Banner for non-fatal downstream processing errors -->
+        <div id="resultsWarningBanner" class="warning-banner hidden">
+          <i data-lucide="alert-circle" class="icon-warning"></i>
+          <div class="warning-banner-content">
+            <span class="warning-banner-title">Downstream Analysis Warning</span>
+            <span id="resultsWarningText" class="warning-banner-text"></span>
           </div>
         </div>
 
-        <!-- Tab Navigation Bar -->
-        <div class="tabs-nav-wrapper">
-          <div class="tabs-nav" id="dashboardTabs">
-            <button class="tab-btn active" data-tab="tab-summary">
-              <i data-lucide="book-open" class="icon-xs"></i>
-              <span>Summary & Overview</span>
-            </button>
-            <button class="tab-btn" data-tab="tab-actions">
-              <i data-lucide="zap" class="icon-xs"></i>
-              <span>Step-by-Step Actions</span>
-              <span class="tab-badge" id="tabBadgeActions">0</span>
-            </button>
-            <button class="tab-btn" data-tab="tab-checklist">
-              <i data-lucide="check-square" class="icon-xs"></i>
-              <span>Interactive Checklist</span>
-              <span class="tab-badge" id="tabBadgeChecklist">0</span>
-            </button>
-            <button class="tab-btn" data-tab="tab-pdf">
-              <i data-lucide="file-down" class="icon-xs"></i>
-              <span>Live PDF Viewer</span>
-            </button>
-            <button class="tab-btn" data-tab="tab-chat">
-              <i data-lucide="message-square" class="icon-xs"></i>
-              <span>Ask AI Video Assistant</span>
-            </button>
-            <button class="tab-btn" data-tab="tab-transcript">
-              <i data-lucide="file-code" class="icon-xs"></i>
-              <span>Raw Transcript</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Tab Panes -->
-        <div class="tab-panes-container">
-          <!-- TAB 1: SUMMARY & INTELLIGENCE -->
-          <div id="tab-summary" class="tab-pane active">
-            <div class="dashboard-grid">
-              <!-- Section A: Overview -->
-              <div class="dash-card glass-panel full-width">
-                <div class="card-header">
-                  <div class="card-title-wrap">
-                    <span class="section-letter">A</span>
-                    <h3 class="card-title">Video Overview</h3>
-                  </div>
-                  <button class="btn btn-ghost btn-xs btnCopy" data-target="overviewContent">
-                    <i data-lucide="copy" class="icon-xs"></i> Copy
-                  </button>
-                </div>
-                <div class="card-body">
-                  <p class="overview-text lead" id="overviewContent">Loading overview...</p>
-                </div>
-              </div>
-
-              <!-- Section B: Main Topics -->
-              <div class="dash-card glass-panel full-width">
-                <div class="card-header">
-                  <div class="card-title-wrap">
-                    <span class="section-letter">B</span>
-                    <h3 class="card-title">Main Topics & Key Concepts</h3>
-                  </div>
-                </div>
-                <div class="card-body">
-                  <div class="topics-grid" id="mainTopicsList">
-                    <!-- Dynamic topic cards -->
-                  </div>
-                </div>
-              </div>
-
-              <!-- Section C: Key Points -->
-              <div class="dash-card glass-panel full-width">
-                <div class="card-header">
-                  <div class="card-title-wrap">
-                    <span class="section-letter">C</span>
-                    <h3 class="card-title">Key Points & Insights</h3>
-                  </div>
-                </div>
-                <div class="card-body">
-                  <div class="key-points-trio">
-                    <div class="points-column facts-col">
-                      <div class="points-col-header">
-                        <i data-lucide="info" class="icon-xs col-icon"></i>
-                        <h4>Important Facts</h4>
-                      </div>
-                      <ul class="points-list" id="factsList"></ul>
-                    </div>
-
-                    <div class="points-column explanations-col">
-                      <div class="points-col-header">
-                        <i data-lucide="help-circle" class="icon-xs col-icon"></i>
-                        <h4>Important Explanations</h4>
-                      </div>
-                      <ul class="points-list" id="explanationsList"></ul>
-                    </div>
-
-                    <div class="points-column recommendations-col">
-                      <div class="points-col-header">
-                        <i data-lucide="thumbs-up" class="icon-xs col-icon"></i>
-                        <h4>Key Recommendations</h4>
-                      </div>
-                      <ul class="points-list" id="recommendationsList"></ul>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- Section F: Final Summary -->
-              <div class="dash-card glass-panel full-width highlight-green">
-                <div class="card-header">
-                  <div class="card-title-wrap">
-                    <span class="section-letter">F</span>
-                    <h3 class="card-title">Final Summary & Takeaway</h3>
-                  </div>
-                </div>
-                <div class="card-body">
-                  <p class="final-summary-text" id="finalSummaryContent"></p>
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 2: STEP-BY-STEP ACTIONS -->
-          <div id="tab-actions" class="tab-pane">
-            <div class="actions-header-bar">
-              <div>
-                <h3 class="section-heading">Identified Actions in the Video</h3>
-                <p class="section-subheading">Distinguishes actions demonstrated vs recommended with full step-by-step details.</p>
-              </div>
-              <div class="actions-legend">
-                <span class="legend-badge demo"><i data-lucide="video" class="icon-xxs"></i> Demonstrated in Video</span>
-                <span class="legend-badge rec"><i data-lucide="message-circle" class="icon-xxs"></i> Recommended / Instructed</span>
+        <div class="split-dashboard">
+          <!-- Left Column: Video Player & Details -->
+          <div class="left-column">
+            <div class="video-preview-wrapper glass-panel">
+              <div class="video-embed-container" id="videoEmbedBox">
+                <iframe id="videoIframe" src="" title="YouTube video player" frameborder="0" allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe>
               </div>
             </div>
 
-            <div class="actions-container" id="actionsList">
-              <!-- Dynamically rendered detailed action cards -->
-            </div>
-          </div>
+            <!-- ✨ Ask AI Trigger Bar (shown after results load) -->
 
-          <!-- TAB 3: INTERACTIVE CHECKLIST -->
-          <div id="tab-checklist" class="tab-pane">
-            <div class="checklist-panel glass-panel">
-              <div class="checklist-top-bar">
-                <div>
-                  <h3 class="section-heading">Action Checklist</h3>
-                  <p class="section-subheading">Track your progress completing tasks from this video.</p>
-                </div>
-                <div class="checklist-stats">
-                  <span id="checklistProgressText">0 of 0 completed</span>
-                  <div class="checklist-progress-track">
-                    <div class="checklist-progress-bar" id="checklistProgressBar" style="width: 0%"></div>
-                  </div>
-                  <button id="btnResetChecklist" class="btn btn-ghost btn-xs">Reset</button>
-                  <button id="btnCopyChecklist" class="btn btn-secondary btn-xs">
-                    <i data-lucide="copy" class="icon-xs"></i> Copy
-                  </button>
-                </div>
+
+            <div class="video-details-card glass-panel">
+              <div class="video-meta-badges">
+                <span class="badge badge-success"><i data-lucide="check-circle" class="icon-xxs"></i> Transcript Verified</span>
+                <span class="badge badge-info" id="badgeWordCount"><i data-lucide="align-left" class="icon-xxs"></i> 0 words</span>
+                <span class="badge badge-purple" id="badgeActionCount"><i data-lucide="check-square" class="icon-xxs"></i> 0 Actions</span>
               </div>
-
-              <div class="checklist-items" id="checklistContainer">
-                <!-- Checklist items -->
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 4: PDF VIEWER -->
-          <div id="tab-pdf" class="tab-pane">
-            <div class="pdf-viewer-card glass-panel">
-              <div class="pdf-toolbar">
-                <div class="pdf-toolbar-left">
-                  <i data-lucide="file-text" class="icon-sm"></i>
-                  <span class="pdf-file-name" id="pdfFileName">report.pdf</span>
-                </div>
-                <div class="pdf-toolbar-right">
-                  <a id="btnPdfDownloadDirect" href="#" class="btn btn-primary btn-sm" download>
-                    <i data-lucide="download" class="icon-xs"></i> Download PDF
-                  </a>
-                  <a id="btnPdfOpenNewTab" href="#" target="_blank" class="btn btn-secondary btn-sm">
-                    <i data-lucide="external-link" class="icon-xs"></i> Open in New Tab
-                  </a>
-                </div>
-              </div>
-
-              <div class="pdf-frame-wrapper" id="pdfFrameWrapper">
-                <iframe id="pdfIframe" src="" class="pdf-iframe" title="PDF Preview"></iframe>
-              </div>
-            </div>
-          </div>
-
-          <!-- TAB 5: AI CHAT ASSISTANT -->
-          <div id="tab-chat" class="tab-pane">
-            <div class="chat-container glass-panel">
-              <div class="chat-header">
-                <div class="chat-header-info">
-                  <div class="avatar-bot">
-                    <i data-lucide="bot" class="icon-sm"></i>
-                  </div>
-                  <div>
-                    <h4 class="chat-title">Video Q&A Assistant</h4>
-                    <p class="chat-subtitle">Answers strictly grounded in this video's transcript</p>
-                  </div>
-                </div>
-                <div class="chat-suggestions">
-                  <button class="chat-chip" data-msg="What are the key steps demonstrated?">Key steps?</button>
-                  <button class="chat-chip" data-msg="What tools or materials were mentioned?">Tools needed?</button>
-                  <button class="chat-chip" data-msg="What precautions should I take?">Precautions?</button>
-                </div>
-              </div>
-
-              <div class="chat-messages" id="chatMessages">
-                <div class="message bot-message">
-                  <div class="message-bubble">
-                    Hello! I have analyzed the entire transcript of this video. Ask me anything about the content, specific steps, timestamps, or advice mentioned!
-                  </div>
-                </div>
-              </div>
-
-              <form id="chatForm" class="chat-input-bar">
-                <input type="text" id="chatInput" class="form-control chat-input" placeholder="Ask a question about this video..." autocomplete="off" />
-                <button type="submit" id="btnSendChat" class="btn btn-primary btn-icon-only">
-                  <i data-lucide="send" class="icon-sm"></i>
+              <h2 class="video-title" id="displayVideoTitle">Video Title</h2>
+              <p class="video-author"><i data-lucide="user" class="icon-xs"></i> <span id="displayVideoAuthor">Channel</span></p>
+              
+              <div class="video-action-buttons">
+                <button id="btnShareVideo" class="btn btn-secondary">
+                  <i data-lucide="share-2" class="icon-sm"></i>
+                  <span>Share</span>
                 </button>
-              </form>
+                <a id="btnDownloadPdf" href="#" class="btn btn-primary btn-glow" download>
+                  <i data-lucide="download" class="icon-sm"></i>
+                  <span>Download Report</span>
+                </a>
+              </div>
             </div>
           </div>
-
-          <!-- TAB 6: RAW TRANSCRIPT -->
-          <div id="tab-transcript" class="tab-pane">
-            <div class="transcript-panel glass-panel">
-              <div class="transcript-header">
-                <div class="search-box">
-                  <i data-lucide="search" class="icon-xs search-icon"></i>
-                  <input type="text" id="transcriptSearch" class="form-control search-input" placeholder="Search transcript..." />
-                </div>
-                <button id="btnCopyTranscript" class="btn btn-secondary btn-sm">
-                  <i data-lucide="copy" class="icon-xs"></i> Copy Transcript
-                </button>
-              </div>
-              <div class="transcript-content" id="transcriptContent">
-                <!-- Timestamped lines -->
-              </div>
+          
+          <!-- Right Column: Scrollable Summary & Actions Panel -->
+          <div class="right-column scrollable-panel glass-panel">
+            <div class="panel-header-tabs">
+              <button id="btnShowSummary" class="panel-tab-btn active" disabled>
+                <i data-lucide="book-open" class="icon-xs"></i>
+                <span>Complete Video Description</span>
+              </button>
+              <button id="btnShowActions" class="panel-tab-btn" disabled>
+                <i data-lucide="zap" class="icon-xs"></i>
+                <span>Step-by-Step Actions</span>
+              </button>
+            </div>
+            
+            <div class="summary-actions-content" id="summaryActionsContent">
+              <!-- Dynamically populated summary paragraphs and step actions -->
             </div>
           </div>
         </div>

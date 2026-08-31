@@ -1,5 +1,6 @@
 import os
 import json
+import re
 from pathlib import Path
 import requests
 from typing import Dict, Any, List, Optional
@@ -19,14 +20,20 @@ class AIProcessor:
             self.api_key = raw_key.strip()
         else:
             self.api_key = ""
-        self.api_url = "https://api.openai.com/v1/chat/completions"
+            
+        if self.api_key.startswith("gsk_"):
+            self.api_url = "https://api.groq.com/openai/v1/chat/completions"
+            self.model = "openai/gpt-oss-120b"
+        else:
+            self.api_url = "https://api.openai.com/v1/chat/completions"
+            self.model = "gpt-4o-mini"
 
-    def process_transcript(self, title: str, author: str, transcript_text: str) -> Dict[str, Any]:
+    def process_transcript(self, title: str, author: str, transcript_text: str, video_desc: str = "") -> Dict[str, Any]:
         """
         Process the complete video transcript with strict grounding and extract all required sections.
         """
         if not self.api_key:
-            return self._fallback_grounded_extractor(title, author, transcript_text)
+            return self._fallback_grounded_extractor(title, author, transcript_text, video_desc)
 
         system_prompt = (
             "You are an expert video content analyst. Analyze the following transcript of a YouTube video "
@@ -34,64 +41,72 @@ class AIProcessor:
             "CRITICAL GROUNDING RULES:\n"
             "1. NEVER hallucinate, extrapolate, or assume missing video content.\n"
             "2. Ground every single point, step, and recommendation strictly in what is stated in the transcript.\n"
-            "3. Clearly distinguish between:\n"
-            "   - 'demonstrated': Actions physically shown, built, coded, or performed step-by-step in the video.\n"
-            "   - 'recommended': Actions advised, suggested, or instructed by the speaker.\n"
-            "   - 'instructional': General procedures or guidelines taught.\n"
-            "4. For every action, extract:\n"
-            "   - name: Clear action name\n"
-            "   - action_type: 'demonstrated' | 'recommended' | 'instructional'\n"
-            "   - description: What needs to be done\n"
-            "   - steps: Array of step-by-step instructions\n"
-            "   - why: Why the action is performed (purpose / benefit)\n"
-            "   - tools_materials: List of required tools/materials ONLY if mentioned in transcript\n"
-            "   - precautions: Important precautions/warnings ONLY if mentioned\n"
-            "   - timing_frequency: Timing or frequency ONLY if mentioned\n"
-            "5. Generate a simple checklist of these actions.\n"
+            "3. Provide timestamp citations (e.g. [02:14]) for every major summary point and action step. "
+            "If the transcript lacks timestamps, label them as 'unavailable'.\n"
+            "4. For every action, extract detailed step-by-step instructions. For each step, include:\n"
+            "   - step_number: order index starting from 1\n"
+            "   - what_to_do: clear instruction of what to do\n"
+            "   - why_it_matters: why this step matters / purpose / benefit\n"
+            "   - tools_resources: list of tools, resources, or links mentioned for this step (empty list if none)\n"
+            "   - prerequisites_cautions: prerequisites or cautions/warnings for this step (empty list if none)\n"
+            "   - timestamp: the timestamp citation where this step begins (e.g. '[03:45]') or 'unavailable'\n"
+            "   - evidence: exact supporting transcript excerpt/evidence for this step\n"
+            "5. The 'overview' summary MUST be formatted with bold headings exactly like this:\n"
+            "   **Context:** one or two sentences giving background. [timestamp]\n"
+            "   **Content Summary:** multi-sentence coverage of the main subject, key ideas, and notable details. [timestamp - timestamp]\n"
+            "   **Key Moments:** bullet list of the most important or interesting moments, each with a timestamp.\n"
+            "   **Actions / Steps:** numbered instructions extracted from the video, each with a timestamp.\n"
+            "   Use this exact section order. Include real timestamps from the transcript. Do NOT collapse everything into one paragraph.\n"
             "6. Output must be strictly valid JSON without markdown wrapping or backticks."
         )
 
         user_prompt = f"""
-VIDEO TITLE: {title}
-CREATOR: {author}
+        VIDEO TITLE: {title}
+        CREATOR: {author}
 
-TRANSCRIPT CONTENT:
-{transcript_text[:18000]}
+        TRANSCRIPT CONTENT:
+        {transcript_text[:18000]}
 
-OUTPUT JSON FORMAT:
-{{
-  "overview": "Short description of what the video is about and its core focus",
-  "main_topics": [
-    {{"topic": "Important topic discussed", "explanation": "Key concept or insight explained"}}
-  ],
-  "key_points": {{
-    "facts": ["Important fact 1", "Important fact 2"],
-    "explanations": ["Important explanation 1", "Important explanation 2"],
-    "recommendations": ["Important recommendation 1", "Important recommendation 2"]
-  }},
-  "actions": [
-    {{
-      "name": "Action Name",
-      "action_type": "demonstrated",
-      "description": "What needs to be done",
-      "steps": [
-        "Step 1...",
-        "Step 2...",
-        "Step 3..."
-      ],
-      "why": "Why this action is performed",
-      "tools_materials": ["Tool or material 1"],
-      "precautions": ["Precaution or warning 1"],
-      "timing_frequency": "Timing or frequency if mentioned"
-    }}
-  ],
-  "action_checklist": [
-    "Action 1 short task description",
-    "Action 2 short task description"
-  ],
-  "final_summary": "Concise summary of the most important information and actions from the video."
-}}
-"""
+        OUTPUT JSON FORMAT:
+        {{
+          "overview": "Detailed, chronological summary covering the entire video section-by-section, citing timestamps (e.g. [01:23]) for major points. Thorough explanation of explanations, warnings, and conclusions.",
+          "main_topics": [
+            {{"topic": "Important topic discussed", "explanation": "Detailed explanation with timestamp citations (e.g. [04:30]) and supporting transcript excerpt."}}
+          ],
+          "key_points": {{
+            "facts": ["Important fact 1 [01:10] (supporting excerpt)", "Important fact 2 [02:15] (supporting excerpt)"],
+            "explanations": ["Important explanation 1 [03:05] (supporting excerpt)"],
+            "recommendations": ["Important recommendation 1 [04:20] (supporting excerpt)"]
+          }},
+          "actions": [
+            {{
+              "name": "Action Name",
+              "action_type": "demonstrated",
+              "description": "What needs to be done",
+              "why": "Why this action is performed",
+              "tools_materials": ["Tool/material 1"],
+              "precautions": ["Precaution/warning 1"],
+              "timing_frequency": "Timing or frequency if mentioned",
+              "steps": [
+                {{
+                  "step_number": 1,
+                  "what_to_do": "Step 1 description",
+                  "why_it_matters": "Why this step matters",
+                  "tools_resources": ["Tool A"],
+                  "prerequisites_cautions": ["Caution B"],
+                  "timestamp": "[03:45]",
+                  "evidence": "supporting transcript excerpt"
+                }}
+              ]
+            }}
+          ],
+          "action_checklist": [
+            "Action 1 short task description",
+            "Action 2 short task description"
+          ],
+          "final_summary": "Thorough chronological summary of key takeaways and actionable conclusions with timestamp citations."
+        }}
+        """
 
         headers = {
             "Authorization": f"Bearer {self.api_key}",
@@ -99,7 +114,7 @@ OUTPUT JSON FORMAT:
         }
 
         payload = {
-            "model": "gpt-4o-mini",
+            "model": self.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
                 {"role": "user", "content": user_prompt}
@@ -117,7 +132,7 @@ OUTPUT JSON FORMAT:
                     error_detail = err_json.get("error", {}).get("message", error_detail)
                 except Exception:
                     pass
-                if response.status_code in (401, 403, 429):
+                if response.status_code in (401, 403, 429, 500, 502, 503, 504):
                     print(f"[AIProcessor] OpenAI status {response.status_code}. Falling back to smart transcript extractor.")
                     return self._fallback_grounded_extractor(title, author, transcript_text)
                 raise AIProcessorError(f"OpenAI API Error ({response.status_code}): {error_detail}")
@@ -140,6 +155,8 @@ OUTPUT JSON FORMAT:
         system_prompt = (
             "You are an AI assistant answering questions about a specific YouTube video.\n"
             "Answer the user's question accurately and concisely, strictly grounded in the provided transcript and summary.\n"
+            "You MUST cite specific timestamps (e.g. [02:14]) from the transcript when discussing details. "
+            "If the transcript has no timestamps, label citations as 'unavailable'.\n"
             "If the answer is not present or supported by the video transcript, politely clarify that the video does not mention it."
         )
 
@@ -178,7 +195,7 @@ TRANSCRIPT:
             if response.status_code == 200:
                 data = response.json()
                 return data["choices"][0]["message"]["content"]
-            elif response.status_code in (401, 403, 429):
+            elif response.status_code in (401, 403, 429, 500, 502, 503, 504):
                 return self._fallback_grounded_chat(transcript, summary_data, question)
             else:
                 return f"Error ({response.status_code}): {response.text}"
@@ -193,7 +210,13 @@ TRANSCRIPT:
         actions = summary_data.get("actions", [])
         matching_actions = []
         for act in actions:
-            act_text = f"{act.get('name', '')} {act.get('description', '')} {' '.join(act.get('steps', []))}".lower()
+            steps_texts = []
+            for s in act.get('steps', []):
+                if isinstance(s, dict):
+                    steps_texts.append(s.get('what_to_do', ''))
+                else:
+                    steps_texts.append(str(s))
+            act_text = f"{act.get('name', '')} {act.get('description', '')} {' '.join(steps_texts)}".lower()
             if any(qw in act_text for qw in q_words):
                 matching_actions.append(act)
         
@@ -202,7 +225,14 @@ TRANSCRIPT:
             for act in matching_actions[:2]:
                 res_parts.append(f"\n• **{act.get('name')}** ({act.get('action_type', 'action').title()}): {act.get('description')}")
                 if act.get('steps'):
-                    res_parts.append("  Steps: " + " → ".join(act.get('steps')[:3]))
+                    step_strings = []
+                    for s in act.get('steps')[:3]:
+                        if isinstance(s, dict):
+                            ts_str = f" {s.get('timestamp')}" if s.get('timestamp') and s.get('timestamp') != 'unavailable' else ""
+                            step_strings.append(f"{s.get('what_to_do')}{ts_str}")
+                        else:
+                            step_strings.append(str(s))
+                    res_parts.append("  Steps: " + " → ".join(step_strings))
             return "\n".join(res_parts)
         
         # Search transcript sentences
@@ -263,65 +293,179 @@ TRANSCRIPT:
             "final_summary": final_summary
         }
 
-    def _fallback_grounded_extractor(self, title: str, author: str, transcript_text: str) -> Dict[str, Any]:
+    def _fallback_grounded_extractor(self, title: str, author: str, transcript_text: str, video_desc: str = "") -> Dict[str, Any]:
         """
         Deterministic fallback extractor if no OpenAI key is set.
         Extracts key sentences and grounded action points directly from transcript sentences.
         """
-        lines = [line.strip() for line in transcript_text.split('\n') if line.strip()]
-        # Strip timestamps for content analysis
-        clean_sentences = []
+        # Sanitize video_desc: strip all bare URLs so they can never contaminate summary fields
+        _url_re = re.compile(r'https?://\S+', re.IGNORECASE)
+        video_desc_clean = _url_re.sub('', video_desc).strip()
+        video_desc_clean = re.sub(r'\n{3,}', '\n\n', video_desc_clean).strip()
+
+        # Sanitize transcript_text: prevent users from pasting a raw URL and having it parsed as content
+        transcript_clean = _url_re.sub('', transcript_text).strip()
+        lines = [line.strip() for line in transcript_clean.split('\n') if line.strip()]
+        
+        parsed_lines = []
         for line in lines:
-            if line.startswith('[') and ']' in line:
-                clean_sentences.append(line.split(']', 1)[1].strip())
+            match = re.search(r'\[(\d{1,2}:\d{2}(?::\d{2})?)\]', line)
+            if match:
+                clean_text = line.replace(match.group(0), "").strip()
+                # Clean up leading hyphens or colons
+                clean_text = re.sub(r'^[:\s\-\u2013\u2014]+', '', clean_text)
+                parsed_lines.append({"time": f"[{match.group(1)}]", "text": clean_text})
             else:
-                clean_sentences.append(line)
+                parsed_lines.append({"time": "unavailable", "text": line})
 
-        full_text = " ".join(clean_sentences)
-        
-        # Overview
-        first_few = clean_sentences[:8]
-        overview = f"This video by {author} focuses on {title}. " + " ".join(first_few[:3])
-        
-        # Extract potential action verbs & sentences
+        # Build structured overview with bold headings
+        total = len(parsed_lines)
+
+        def pick_lines(start_frac, end_frac, n):
+            """Pick up to n lines from a fraction of the transcript."""
+            s = int(total * start_frac)
+            e = int(total * end_frac)
+            return [p for p in parsed_lines[s:e] if p["text"]] [:n]
+
+        def ts_range(group):
+            """Return '[start - end]' or '[start]' or '' from a group of parsed lines."""
+            times = [p["time"] for p in group if p["time"] != "unavailable"]
+            if len(times) >= 2:
+                return f"[{times[0].strip('[]')} - {times[-1].strip('[]')}]"
+            elif len(times) == 1:
+                return f"{times[0]}"
+            return ""
+
+        context_lines  = pick_lines(0.0, 0.15, 3)
+        content_lines  = pick_lines(0.1,  0.8,  6)
+        moment_lines   = pick_lines(0.0,  1.0,  6)  # spread across whole video
+        action_lines   = [p for p in parsed_lines if any(
+            kw in p["text"].lower() for kw in ["first","next","then","step","install","run","click","apply","make sure","prepare","open","go to"]
+        )][:6]
+
+        context_text = " ".join(p["text"] for p in context_lines)
+        context_ts   = ts_range(context_lines)
+
+        content_text = " ".join(p["text"] for p in content_lines)
+        content_ts   = ts_range(content_lines)
+
+        moment_bullets = ""
+        step_interval = max(1, total // 6)
+        for i, p in enumerate(parsed_lines[::step_interval][:6]):
+            ts = f" {p['time']}" if p["time"] != "unavailable" else ""
+            moment_bullets += f"\n- {p['text']}{ts}"
+
+        action_numbered = ""
+        for i, p in enumerate(action_lines, 1):
+            ts = f" {p['time']}" if p["time"] != "unavailable" else ""
+            action_numbered += f"\n{i}. {p['text']}{ts}"
+
+        sections = []
+        if context_text:
+            sections.append(f"**Context:** {context_text}" + (f" {context_ts}" if context_ts else ""))
+        if content_text:
+            sections.append(f"**Content Summary:** {content_text}" + (f" {content_ts}" if content_ts else ""))
+        if moment_bullets:
+            sections.append(f"**Key Moments:**{moment_bullets}")
+        if action_numbered:
+            sections.append(f"**Actions / Steps:**{action_numbered}")
+
+        overview = "\n\n".join(sections)
+        if not overview or not sections:
+            # No transcript sections could be built — use sanitised description or generic placeholder
+            if video_desc_clean:
+                overview = f"**Video Description:**\n{video_desc_clean}"
+            else:
+                overview = f"**Content Summary:** Video overview for '{title}' by {author}."
+
+        # Build final_summary from the last 20 % of the transcript (wrap-up / conclusions)
+        conclusion_lines = pick_lines(0.75, 1.0, 4)
+        conclusion_text = " ".join(p["text"] for p in conclusion_lines)
+        conclusion_ts = ts_range(conclusion_lines)
+        if conclusion_text:
+            final_summary = f"**Conclusions:** {conclusion_text}" + (f" {conclusion_ts}" if conclusion_ts else "")
+        else:
+            final_summary = overview
+
+        # Extract potential action verbs & sentences chronologically
         action_keywords = ["how to", "make sure", "first", "next", "then", "step", "you need to", "recommend", "apply", "install", "configure", "click", "run", "prepare"]
-        extracted_actions = []
-        
-        for sent in clean_sentences:
-            lower = sent.lower()
-            if any(kw in lower for kw in action_keywords) and len(sent) > 20:
-                if len(extracted_actions) < 4:
-                    extracted_actions.append(sent)
-
         actions_list = []
-        for idx, act_text in enumerate(extracted_actions, 1):
-            actions_list.append({
-                "name": f"Action {idx}: {act_text[:45]}...",
-                "action_type": "recommended",
-                "description": act_text,
-                "steps": [
-                    f"Follow instruction: {act_text}",
-                    "Apply the guidelines mentioned in the video context."
-                ],
-                "why": "To implement the process outlined in this video segment.",
-                "tools_materials": [],
-                "precautions": ["Follow standard precautions as described in the video."],
-                "timing_frequency": None
-            })
+        idx = 1
+        for pline in parsed_lines:
+            lower = pline["text"].lower()
+            if any(kw in lower for kw in action_keywords) and len(pline["text"]) > 20:
+                actions_list.append({
+                    "name": f"Action {idx}: {pline['text'][:45]}...",
+                    "action_type": "recommended",
+                    "description": pline["text"],
+                    "why": "To implement the guidelines demonstrated at this point in the video.",
+                    "tools_materials": [],
+                    "precautions": ["Follow standard precautions as described in the video."],
+                    "timing_frequency": None,
+                    "steps": [
+                        {
+                            "step_number": 1,
+                            "what_to_do": pline["text"],
+                            "why_it_matters": "To execute the step described in the video tutorial.",
+                            "tools_resources": [],
+                            "prerequisites_cautions": ["Observe standard caution during execution."],
+                            "timestamp": pline["time"],
+                            "evidence": pline["text"]
+                        }
+                    ]
+                })
+                idx += 1
+                if len(actions_list) >= 8:
+                    break
 
         if not actions_list:
-            actions_list.append({
-                "name": "General Implementation",
-                "action_type": "instructional",
-                "description": "Review the concepts demonstrated in the video tutorial.",
-                "steps": ["Review transcript instructions", "Execute steps as instructed"],
-                "why": "To apply knowledge from the video.",
-                "tools_materials": [],
-                "precautions": [],
-                "timing_frequency": None
-            })
+            for idx, pline in enumerate(parsed_lines[:5], 1):
+                actions_list.append({
+                    "name": f"Instruction {idx}: {pline['text'][:45]}...",
+                    "action_type": "recommended",
+                    "description": pline["text"],
+                    "why": f"Actionable step discussed in the tutorial at {pline['time']}.",
+                    "tools_materials": [],
+                    "precautions": [],
+                    "timing_frequency": None,
+                    "steps": [
+                        {
+                            "step_number": idx,
+                            "what_to_do": pline["text"],
+                            "why_it_matters": "Demonstrated instruction from transcript.",
+                            "tools_resources": [],
+                            "prerequisites_cautions": [],
+                            "timestamp": pline["time"],
+                            "evidence": pline["text"]
+                        }
+                    ]
+                })
 
         checklist = [act["name"] for act in actions_list]
+
+        # Key points facts / explanations / recommendations
+        facts = []
+        explanations = []
+        recommendations = []
+        for pline in parsed_lines:
+            txt = pline["text"]
+            t_str = f" {pline['time']}" if pline['time'] != 'unavailable' else ""
+            if "warning" in txt.lower() or "caution" in txt.lower() or "prevent" in txt.lower():
+                if len(explanations) < 3:
+                    explanations.append(f"{txt}{t_str} (Source excerpt: '{txt[:60]}...')")
+            elif "recommend" in txt.lower() or "should" in txt.lower() or "advice" in txt.lower():
+                if len(recommendations) < 3:
+                    recommendations.append(f"{txt}{t_str} (Source excerpt: '{txt[:60]}...')")
+            else:
+                if len(facts) < 3 and len(txt) > 30:
+                    facts.append(f"{txt}{t_str} (Source excerpt: '{txt[:60]}...')")
+
+        if not facts:
+            facts = [f"Video titled '{title}' presented by {author}."]
+        if not explanations:
+            explanations = ["Detailed transcript provided covering instructional workflows."]
+        if not recommendations:
+            recommendations = ["Follow step-by-step instructions detailed in the transcript."]
 
         return {
             "overview": overview,
@@ -330,11 +474,11 @@ TRANSCRIPT:
                 {"topic": "Transcript Highlights", "explanation": "Direct walkthrough and key concepts covered in the video recording."}
             ],
             "key_points": {
-                "facts": [f"Video titled '{title}' presented by {author}."],
-                "explanations": ["Detailed transcript provided covering instructional workflows."],
-                "recommendations": ["Follow step-by-step instructions detailed in the transcript."]
+                "facts": facts,
+                "explanations": explanations,
+                "recommendations": recommendations
             },
             "actions": actions_list,
-            "action_checklist": checklist,
-            "final_summary": f"In summary, this video '{title}' provides clear instructions and actionable guidance for viewers."
+            "action_checklist": [act["name"] for act in actions_list],
+            "final_summary": final_summary
         }
