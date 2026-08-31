@@ -726,12 +726,6 @@ class TranscriptManager:
                 return result
 
             logger.warning(f"Provider {provider.name} failed. Status: {result.status}. Error: {result.error}")
-
-            # If video is private/unavailable, do not try other providers
-            if result.status == "video_unavailable":
-                logger.warning(f"Video {video_id} is unavailable. Stopping fallback sequence.")
-                return result
-
             last_result = result
 
         logger.error(f"All transcript providers failed for video {video_id}.")

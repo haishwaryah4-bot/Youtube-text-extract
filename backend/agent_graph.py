@@ -38,6 +38,7 @@ class VideoGraphState(TypedDict, total=False):
     pdf_path: str
     error: Optional[str]
     api_key: Optional[str]
+    is_local_fallback: Optional[bool]
 
 
 # ---------------------------------------------------------
@@ -132,29 +133,25 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
 
         if transcript_status == "rate_limited":
             error_type = "YOUTUBE_RATE_LIMITED"
-            error_message = "YouTube is temporarily rate-limiting automated requests from this server. Please try again later or paste the transcript manually."
+            error_message = "YouTube is temporarily rate-limiting automated requests from this server. You can paste the transcript below for instant free summarization."
         elif transcript_status == "bot_check":
             error_type = "YOUTUBE_BOT_CHECK"
-            error_message = "YouTube requires sign-in verification for this video from our cloud servers. Please paste the transcript manually."
+            error_message = "YouTube requires sign-in verification for this video. You can paste the transcript below for instant free summarization."
         elif transcript_status == "video_unavailable":
-            error_type = "VIDEO_UNAVAILABLE"
-            error_message = "This video is private, age-restricted, removed, or unavailable."
+            error_type = "TRANSCRIPTION_ERROR"
+            error_message = "Automatic transcript retrieval failed for this video. You can paste the transcript below for instant free summarization."
         elif transcript_status == "captions_unavailable":
-            # Captions genuinely not available for this video — no audio fallback
             error_type = "YOUTUBE_CAPTIONS_UNAVAILABLE"
-            error_message = (
-                "This video has no accessible captions or transcript. "
-                "Please paste the transcript text manually."
-            )
+            error_message = "This video has no accessible automatic captions. You can paste the transcript below for instant free summarization."
         elif "OpenAI API key is missing" in str(err_msg):
             error_type = "OPENAI_CONFIGURATION_ERROR"
-            error_message = "OpenAI API key is not configured on this server."
+            error_message = "OpenAI API key is not configured on this server. You can paste the transcript below for instant free summarization."
         elif "timed out" in str(err_msg).lower() or "timeout" in str(err_msg).lower():
             error_type = "TRANSCRIPTION_TIMEOUT"
-            error_message = "Transcript retrieval timed out. The video may be too long or the server is busy."
+            error_message = "Transcript retrieval timed out. You can paste the transcript below for instant free summarization."
         else:
             error_type = "TRANSCRIPTION_ERROR"
-            error_message = "Unable to retrieve transcript for this video. Please paste the transcript manually."
+            error_message = "Automatic transcript retrieval failed. You can paste the transcript below for instant free summarization."
 
         # Log the internal error server-side for debugging
         import logging
@@ -517,7 +514,8 @@ def run_youtube_analysis(
         "final_summary": "",
         "pdf_path": "",
         "error": None,
-        "api_key": api_key
+        "api_key": api_key,
+        "is_local_fallback": False
     }
     return compiled_graph.invoke(initial_state)
 

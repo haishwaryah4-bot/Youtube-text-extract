@@ -334,7 +334,7 @@ document.addEventListener('DOMContentLoaded', () => {
       const text = manualTranscriptInput.value.trim();
       
       if (!url) {
-        url = "https://www.youtube.com/watch?v=sample123";
+        url = "https://www.youtube.com/watch?v=sample12345";
       }
 
       if (text) {
@@ -494,8 +494,8 @@ document.addEventListener('DOMContentLoaded', () => {
         manualTranscriptInput.value = '';
       }
 
-      errorTitle.textContent = 'Transcript-Based Analysis Unavailable';
-      errorMessage.textContent = err.message || 'An unexpected error occurred.';
+      errorTitle.textContent = '⚠ Automatic transcript unavailable';
+      errorMessage.textContent = err.message || 'Paste the video\'s transcript below and get a free instant summary.';
       setProcessingState(false);
       showToast(err.message);
     }
