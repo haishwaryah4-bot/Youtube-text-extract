@@ -2775,3 +2775,187 @@ h1, h2, h3, h4 {
   font-size: 0.9rem;
   color: var(--text-secondary);
 }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   CITATION BADGES — clickable timestamp pills with clock icon
+   ═══════════════════════════════════════════════════════════════════════════ */
+.citation-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px 8px 2px 6px;
+  background: rgba(6, 95, 212, 0.15);
+  border: 1px solid rgba(6, 95, 212, 0.35);
+  border-radius: 20px;
+  color: #60a5fa;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: none;
+  transition: background var(--transition-fast), border-color var(--transition-fast), color var(--transition-fast), transform var(--transition-fast);
+  vertical-align: middle;
+  white-space: nowrap;
+  line-height: 1.4;
+  user-select: none;
+}
+.citation-badge:hover {
+  background: rgba(6, 95, 212, 0.30);
+  border-color: rgba(96, 165, 250, 0.65);
+  color: #93c5fd;
+  transform: translateY(-1px);
+}
+.citation-badge:active {
+  transform: translateY(0);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   VIDEO SUMMARY SECTIONS — card-based section layout
+   ═══════════════════════════════════════════════════════════════════════════ */
+.vs-section {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  margin-bottom: 1rem;
+}
+.vs-section-header {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.65rem 1rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.vs-section-icon { opacity: 0.8; }
+.vs-section-body { padding: 0.85rem 1rem; }
+
+.accent-cyan    .vs-section-header { color: var(--accent-cyan);    background: rgba(62, 166, 255, 0.08);  }
+.accent-indigo  .vs-section-header { color: #818cf8;               background: rgba(99, 102, 241, 0.08);  }
+.accent-emerald .vs-section-header { color: var(--accent-emerald); background: rgba(16, 185, 129, 0.08); }
+.accent-amber   .vs-section-header { color: var(--accent-amber);   background: rgba(245, 158, 11, 0.08);  }
+
+/* ── Paragraph & list text inside vs-sections ── */
+.vs-body-text {
+  font-size: 0.88rem;
+  color: var(--text-muted);
+  line-height: 1.65;
+}
+.vs-detail-para {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.68;
+  margin-bottom: 0.55rem;
+}
+.vs-detail-para:last-child { margin-bottom: 0; }
+.vs-detail-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+}
+.vs-detail-list li {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+  padding-left: 1rem;
+  position: relative;
+}
+.vs-detail-list li::before {
+  content: '›';
+  position: absolute;
+  left: 0;
+  color: var(--accent-cyan);
+  font-weight: 700;
+}
+.vs-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 0.45rem; }
+.vs-list-item { font-size: 0.875rem; color: var(--text-muted); line-height: 1.6; }
+.vs-sub { color: var(--text-muted); }
+
+/* ── Ordered step list ── */
+.vs-ordered-list {
+  padding-left: 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  margin-bottom: 0.75rem;
+}
+.vs-ordered-list li {
+  font-size: 0.875rem;
+  color: var(--text-muted);
+  line-height: 1.6;
+}
+
+/* ── Tools block ── */
+.vs-tools-block { margin-top: 0.75rem; }
+.vs-tools-label { font-size: 0.78rem; color: var(--text-dim); display: flex; align-items: center; gap: 0.35rem; margin-bottom: 0.4rem; }
+.vs-tools-pills { display: flex; flex-wrap: wrap; gap: 0.35rem; }
+.vs-tool-pill {
+  font-size: 0.72rem;
+  padding: 3px 8px;
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.25);
+  border-radius: 20px;
+  color: var(--accent-amber);
+  font-weight: 500;
+}
+.vs-tools-inline { font-size: 0.78rem; color: var(--text-dim); }
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   BREAKDOWN SUBSECTIONS — chronological section cards within the detail view
+   ═══════════════════════════════════════════════════════════════════════════ */
+.breakdown-container {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+.breakdown-subsection {
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: var(--radius-sm);
+  overflow: hidden;
+}
+.breakdown-subsection-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.85rem;
+  background: rgba(99, 102, 241, 0.07);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+.breakdown-subsection-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: #a5b4fc;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  flex: 1;
+}
+.breakdown-subsection-body {
+  padding: 0.75rem 0.85rem;
+}
+.breakdown-intro-para {
+  margin-bottom: 0.5rem;
+}
+
+/* ── Highlights list ── */
+.highlights-list { gap: 0.55rem !important; }
+.highlight-item {
+  padding-left: 1rem !important;
+  font-weight: 500 !important;
+  color: #e2e8f0 !important;
+}
+.highlight-item::before {
+  content: '★' !important;
+  color: var(--accent-amber) !important;
+  font-size: 0.65rem;
+  top: 2px;
+}
+

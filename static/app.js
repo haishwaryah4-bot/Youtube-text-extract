@@ -576,30 +576,29 @@ document.addEventListener('DOMContentLoaded', () => {
   function linkifyTimestamps(text) {
     if (!text) return '';
 
-    // Range: [MM:SS - MM:SS] or [H:MM:SS - H:MM:SS] — seek to start time
-    const rangeReplace = (match, h1, m1, s1, h2, m2, s2) => {
-      const startSecs = (h1 ? parseInt(h1,10)*3600 : 0) + parseInt(m1,10)*60 + parseInt(s1,10);
-      return `<span class="timestamp-link" data-seconds="${startSecs}" style="cursor:pointer;color:#2563eb;font-weight:600;text-decoration:underline;">${match}</span>`;
-    };
+    // Remove **bold** wrapping around timestamps before processing
+    text = text.replace(/\*\*\[/g, '[').replace(/\]\*\*/g, ']');
 
-    // [H:MM:SS - H:MM:SS]
-    let temp = text.replace(/\[(\d{1,2}):(\d{2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2}):(\d{2})\]/g,
-      (match, h1, m1, s1, h2, m2, s2) => rangeReplace(match, h1, m1, s1, h2, m2, s2));
+    const makeBadge = (match, secs) =>
+      `<span class="citation-badge timestamp-link" data-seconds="${secs}" title="Jump to ${match} in video">` +
+      `<svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-1px;margin-right:3px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>` +
+      `${match}</span>`;
 
-    // [MM:SS - MM:SS]
-    temp = temp.replace(/\[(\d{1,2}):(\d{2})\s*-\s*(\d{1,2}):(\d{2})\]/g,
-      (match, m1, s1, m2, s2) => rangeReplace(match, null, m1, s1, null, m2, s2));
+    // Range: [MM:SS – MM:SS] or [H:MM:SS – H:MM:SS] — em-dash variant from our new backend
+    let temp = text.replace(/\[(\d{1,2}):(\d{2}(?::\d{2})?)\s*[\-\u2013\u2014]\s*(\d{1,2}):(\d{2}(?::\d{2})?)\]/g, (match, m1, s1) => {
+      const parts1 = m1.split(':').map(Number);
+      const secs = parts1.length === 2 ? parts1[0]*60 + parts1[1] : parts1[0]*3600 + parts1[1]*60 + parts1[2];
+      return makeBadge(match, secs);
+    });
 
     // Single [HH:MM:SS]
     temp = temp.replace(/\[(\d{1,2}):(\d{2}):(\d{2})\]/g, (match, p1, p2, p3) => {
-      const totalSecs = parseInt(p1,10)*3600 + parseInt(p2,10)*60 + parseInt(p3,10);
-      return `<span class="timestamp-link" data-seconds="${totalSecs}" style="cursor:pointer;color:#2563eb;font-weight:600;text-decoration:underline;">${match}</span>`;
+      return makeBadge(match, parseInt(p1,10)*3600 + parseInt(p2,10)*60 + parseInt(p3,10));
     });
 
     // Single [MM:SS]
     temp = temp.replace(/\[(\d{1,2}):(\d{2})\]/g, (match, p1, p2) => {
-      const totalSecs = parseInt(p1,10)*60 + parseInt(p2,10);
-      return `<span class="timestamp-link" data-seconds="${totalSecs}" style="cursor:pointer;color:#2563eb;font-weight:600;text-decoration:underline;">${match}</span>`;
+      return makeBadge(match, parseInt(p1,10)*60 + parseInt(p2,10));
     });
 
     return temp;
@@ -1021,135 +1020,258 @@ document.addEventListener('DOMContentLoaded', () => {
     return block;
   }
 
+  /* ── renderVideoSummary ──────────────────────────────────────────────── */
   function renderVideoSummary(data, container) {
     container.innerHTML = '';
 
     const demonstrated = data.demonstrated_actions || [];
-    const recommended = data.recommended_actions || [];
-    const allActions = [...demonstrated, ...recommended];
+    const recommended  = data.recommended_actions  || [];
+    const allActions   = [...demonstrated, ...recommended];
+    const overviewRaw  = (data.overview || data.summary || '').trim();
+    const kp           = data.key_points || {};
+    const facts        = kp.facts        || [];
+    const explanations = kp.explanations || [];
+    const recommendations = kp.recommendations || [];
 
-    // ── 1. What the Video is About ──────────────────────────────────────────
-    // Use the structured overview field. Strip raw **Heading:** markdown to
-    // extract just the Context / Content Summary sentences.
-    const overviewRaw = (data.overview || data.summary || '').trim();
-    let aboutText = '';
+    /* ── helper: render inline markdown (**bold**, *italic*, ### heading) */
+    function renderMarkdown(raw) {
+      if (!raw) return '';
+      let html = escapeHtml(raw);
+      // Bold **text**
+      html = html.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+      // Italic *text*
+      html = html.replace(/\*([^*]+)\*/g, '<em>$1</em>');
+      return linkifyTimestamps(html);
+    }
+
+    /* ── helper: parse full overview into named sections ─────────────── */
+    function parseOverviewSections(raw) {
+      if (!raw) return [];
+      const result = [];
+      // Split on **HeadingText:** pattern OR ### HeadingText pattern
+      const parts = raw.split(/(?=\*\*[^*]+:\*\*|###\s)/g);
+      parts.forEach(part => {
+        const trimmed = part.trim();
+        if (!trimmed) return;
+        const boldHeadingMatch = trimmed.match(/^\*\*([^*]+):\*\*\s*([\s\S]*)$/);
+        const h3HeadingMatch   = trimmed.match(/^###\s+([^\n]+)([\s\S]*)$/);
+        if (boldHeadingMatch) {
+          result.push({ heading: boldHeadingMatch[1].trim(), body: boldHeadingMatch[2].trim() });
+        } else if (h3HeadingMatch) {
+          result.push({ heading: h3HeadingMatch[1].trim(), body: h3HeadingMatch[2].trim() });
+        } else {
+          result.push({ heading: null, body: trimmed });
+        }
+      });
+      return result;
+    }
+
+    /* ── helper: render body text (paragraphs + bullet lists) ────────── */
+    function renderBody(bodyRaw) {
+      if (!bodyRaw) return '';
+      const lines = bodyRaw.split('\n');
+      let html = '';
+      let inList = false;
+      lines.forEach(line => {
+        const t = line.trim();
+        if (!t) {
+          if (inList) { html += '</ul>'; inList = false; }
+          return;
+        }
+        const isBullet = /^[-•*]\s+/.test(t);
+        if (isBullet) {
+          if (!inList) { html += '<ul class="vs-detail-list">'; inList = true; }
+          const clean = t.replace(/^[-•*]\s+/, '');
+          html += `<li>${renderMarkdown(clean)}</li>`;
+        } else {
+          if (inList) { html += '</ul>'; inList = false; }
+          html += `<p class="vs-detail-para">${renderMarkdown(t)}</p>`;
+        }
+      });
+      if (inList) html += '</ul>';
+      return html;
+    }
+
+    /* ── 1. Full Detailed Breakdown ───────────────────────────────────── */
     if (overviewRaw) {
-      // Try to pull the Context section from bold-heading format
-      const contextMatch = overviewRaw.match(/\*\*Context:\*\*\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)/i);
-      const contentMatch = overviewRaw.match(/\*\*Content Summary:\*\*\s*([^\n]+(?:\n(?!\*\*)[^\n]+)*)/i);
-      const contextText = contextMatch ? contextMatch[1].trim() : '';
-      const contentText = contentMatch ? contentMatch[1].trim() : '';
-      if (contextText && contentText) {
-        aboutText = `${contextText} ${contentText}`;
-      } else if (contextText) {
-        aboutText = contextText;
-      } else if (contentText) {
-        aboutText = contentText;
-      } else {
-        // No bold-heading structure — use as plain paragraph (strip ** markers)
-        aboutText = overviewRaw.replace(/\*\*[^*]+:\*\*/g, '').replace(/\n+/g, ' ').trim();
+      const sections = parseOverviewSections(overviewRaw);
+
+      // Context section (first **Context:** block) as a short intro card
+      const contextSec = sections.find(s => s.heading && /^context/i.test(s.heading));
+      if (contextSec && contextSec.body) {
+        container.appendChild(makeSummarySection(
+          'info', 'Context',
+          `<p class="vs-body-text">${renderMarkdown(contextSec.body)}</p>`,
+          'accent-cyan'
+        ));
+      }
+
+      // Detailed Section-by-Section Breakdown — any section whose heading contains
+      // typical section-title words OR ### sub-sections.
+      const detailSec = sections.find(s => s.heading && /detail|breakdown|summary/i.test(s.heading));
+      if (detailSec && detailSec.body) {
+        // The body may contain ### sub-sections — parse those too
+        const subParts = detailSec.body.split(/(?=###\s)/g);
+        const subSections = [];
+        subParts.forEach(p => {
+          const t = p.trim();
+          if (!t) return;
+          const h3m = t.match(/^###\s+([^\n]+)([\s\S]*)$/);
+          if (h3m) {
+            subSections.push({ heading: h3m[1].trim(), body: h3m[2].trim() });
+          } else {
+            subSections.push({ heading: null, body: t });
+          }
+        });
+
+        // Wrap each sub-section in its own styled card inside one parent section
+        let breakdownHtml = '';
+        subSections.forEach(sub => {
+          if (sub.heading) {
+            // Extract the time range from the heading e.g. "Intro (00:00 – 01:23)"
+            const timeRangeMatch = sub.heading.match(/\(([^)]+)\)$/);
+            const cleanHeading   = sub.heading.replace(/\s*\([^)]+\)$/, '').trim();
+            const timeRange      = timeRangeMatch ? timeRangeMatch[1].trim() : '';
+            breakdownHtml += `
+              <div class="breakdown-subsection">
+                <div class="breakdown-subsection-header">
+                  <span class="breakdown-subsection-title">${escapeHtml(cleanHeading)}</span>
+                  ${timeRange ? `<span class="citation-badge timestamp-link" data-seconds="${parseTimestampToSecs(timeRange.split(/[\-\u2013\u2014]/)[0].trim())}" title="Jump to this section">
+                    <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-1px;margin-right:3px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    ${escapeHtml(timeRange)}
+                  </span>` : ''}
+                </div>
+                <div class="breakdown-subsection-body">${renderBody(sub.body)}</div>
+              </div>`;
+          } else if (sub.body) {
+            breakdownHtml += `<div class="breakdown-intro-para">${renderBody(sub.body)}</div>`;
+          }
+        });
+
+        if (breakdownHtml) {
+          container.appendChild(makeSummarySection(
+            'file-text', 'Detailed Section-by-Section Breakdown',
+            `<div class="breakdown-container">${breakdownHtml}</div>`,
+            'accent-indigo'
+          ));
+        }
+      } else if (sections.length > 0) {
+        // Fallback: no explicit "Detailed..." section — render all non-Context sections
+        sections.filter(s => !s.heading || !/^context/i.test(s.heading)).forEach(sec => {
+          if (!sec.body && !sec.heading) return;
+          const label = sec.heading || 'Summary';
+          container.appendChild(makeSummarySection(
+            'file-text', label,
+            `<div>${renderBody(sec.body)}</div>`,
+            'accent-indigo'
+          ));
+        });
+      }
+
+      // Key Highlights section from overview
+      const highlightsSec = sections.find(s => s.heading && /highlights|moments/i.test(s.heading));
+      if (highlightsSec && highlightsSec.body) {
+        const hlines = highlightsSec.body.split('\n').filter(l => l.trim());
+        let highlightsHtml = '<ul class="vs-detail-list highlights-list">';
+        hlines.forEach(l => {
+          const clean = l.trim().replace(/^[-•*]\s+/, '');
+          if (clean) highlightsHtml += `<li class="highlight-item">${renderMarkdown(clean)}</li>`;
+        });
+        highlightsHtml += '</ul>';
+        container.appendChild(makeSummarySection(
+          'star', 'Key Highlights & Crucial Moments', highlightsHtml, 'accent-amber'
+        ));
+      }
+
+      // Main Takeaways section from overview
+      const takeawaysSec = sections.find(s => s.heading && /takeaway/i.test(s.heading));
+      if (takeawaysSec && takeawaysSec.body) {
+        container.appendChild(makeSummarySection(
+          'check-circle', 'Main Takeaways',
+          `<div>${renderBody(takeawaysSec.body)}</div>`,
+          'accent-emerald'
+        ));
       }
     }
 
-    if (aboutText) {
-      container.appendChild(
-        makeSummarySection(
-          'video', 'What the Video is About',
-          `<p class="vs-body-text">${linkifyTimestamps(escapeHtml(aboutText))}</p>`,
-          'accent-cyan'
-        )
-      );
-    }
-
-    // ── 2. Main Topic / Context ──────────────────────────────────────────────
+    /* ── 2. Main Topics ────────────────────────────────────────────────── */
     const mainTopics = data.main_topics || [];
     if (mainTopics.length > 0) {
-      let topicsHtml = '<ul class="vs-list">';
+      let topicsHtml = '<ul class="vs-detail-list">';
       mainTopics.forEach(t => {
-        const topic = typeof t === 'object' ? (t.topic || '') : String(t);
+        const topic       = typeof t === 'object' ? (t.topic || '') : String(t);
         const explanation = typeof t === 'object' ? (t.explanation || '') : '';
-        topicsHtml += `<li class="vs-list-item">`;
-        if (topic) topicsHtml += `<strong>${escapeHtml(topic)}</strong>`;
+        topicsHtml += `<li class="vs-list-item"><strong>${escapeHtml(topic)}</strong>`;
         if (explanation) topicsHtml += ` — <span class="vs-sub">${linkifyTimestamps(escapeHtml(explanation))}</span>`;
         topicsHtml += `</li>`;
       });
       topicsHtml += '</ul>';
-      container.appendChild(
-        makeSummarySection('book-open', 'Main Topic / Context', topicsHtml, 'accent-indigo')
-      );
+      container.appendChild(makeSummarySection('book-open', 'Main Topics Covered', topicsHtml, 'accent-indigo'));
     }
 
-    // ── 3. Important Points (in order they appear) ───────────────────────────
-    // Pull Key Moments from the overview's bullet list, then fall back to key_points
-    const kp = data.key_points || {};
-    const facts = kp.facts || [];
-    const explanations = kp.explanations || [];
-    const recommendations = kp.recommendations || [];
-
-    // Also try to extract Key Moments bullets from overview
-    const momentsMatch = overviewRaw.match(/\*\*Key Moments:\*\*([\s\S]*?)(?=\n\*\*|$)/i);
-    const momentLines = momentsMatch
-      ? momentsMatch[1].split('\n').map(l => l.trim()).filter(l => l.startsWith('-') || l.match(/^\d+\./)).map(l => l.replace(/^[-\d.]+\s*/, ''))
-      : [];
-
-    const allPoints = [...momentLines, ...facts, ...explanations];
+    /* ── 3. Key Points / Facts ─────────────────────────────────────────── */
+    const allPoints = [...(facts), ...(explanations)];
     if (allPoints.length > 0) {
-      let pointsHtml = '<ul class="vs-list">';
+      let pointsHtml = '<ul class="vs-detail-list">';
       allPoints.forEach(pt => {
-        if (pt.trim()) {
+        if (pt && pt.trim()) {
           pointsHtml += `<li class="vs-list-item">${linkifyTimestamps(escapeHtml(pt.trim()))}</li>`;
         }
       });
       pointsHtml += '</ul>';
-      container.appendChild(
-        makeSummarySection('list', 'Important Points', pointsHtml, 'accent-emerald')
-      );
+      container.appendChild(makeSummarySection('list', 'Key Points & Facts', pointsHtml, 'accent-emerald'));
     }
 
-    // ── 4. Key Actions / Steps & Tools Mentioned ─────────────────────────────
-    // Pull from the overview's Actions/Steps section and from action data
-    const actionsMatch = overviewRaw.match(/\*\*Actions \/ Steps:\*\*([\s\S]*?)(?=\n\*\*|$)/i);
-    const overviewActionLines = actionsMatch
-      ? actionsMatch[1].split('\n').map(l => l.trim()).filter(l => l.match(/^\d+\./))
-        .map(l => l.replace(/^\d+\.\s*/, ''))
-      : [];
+    /* ── 4. Conclusions / Takeaways from key_points ────────────────────── */
+    const recs = recommendations.filter(r => r && !r.includes('Transcript summary') && !r.includes('pasted transcript'));
+    const finalSummary = (data.final_summary || '').trim();
+    if (recs.length > 0 || (finalSummary && !finalSummary.includes('**Context'))) {
+      let takeawayHtml = '';
+      if (finalSummary && !finalSummary.startsWith('**')) {
+        takeawayHtml += `<p class="vs-body-text">${linkifyTimestamps(escapeHtml(finalSummary))}</p>`;
+      }
+      if (recs.length > 0) {
+        takeawayHtml += '<ul class="vs-detail-list">';
+        recs.forEach(r => { takeawayHtml += `<li class="vs-list-item">${linkifyTimestamps(escapeHtml(r))}</li>`; });
+        takeawayHtml += '</ul>';
+      }
+      if (takeawayHtml) {
+        container.appendChild(makeSummarySection('check-circle', 'Conclusions & Takeaways', takeawayHtml, 'accent-emerald'));
+      }
+    }
 
-    // Collect tools from all actions
+    /* ── 5. Key Actions / Steps ────────────────────────────────────────── */
     const toolsSet = new Set();
     allActions.forEach(act => {
       (act.tools_materials || []).forEach(t => t && toolsSet.add(t));
       (act.steps || []).forEach(step => {
-        if (typeof step === 'object') {
-          (step.tools_resources || []).forEach(t => t && toolsSet.add(t));
-        }
+        if (typeof step === 'object') (step.tools_resources || []).forEach(t => t && toolsSet.add(t));
       });
     });
 
-    // Build step lines from structured action steps
     const structuredStepLines = [];
     allActions.forEach(act => {
-      (act.steps || []).forEach(step => {
+      (act.steps || []).forEach((step, sIdx) => {
         if (typeof step === 'object' && step.what_to_do) {
-          const tsRaw = step.timestamp && step.timestamp !== 'unavailable' ? ` <span class="timestamp-link" data-seconds="${parseTimestampToSecs(step.timestamp)}" style="cursor:pointer;color:#06B6D4;font-family:var(--font-mono);font-size:0.78rem;text-decoration:underline;font-weight:600;">${escapeHtml(step.timestamp)}</span>` : '';
-          const tools = (step.tools_resources || []).filter(Boolean);
-          let lineHtml = escapeHtml(step.what_to_do) + tsRaw;
-          if (tools.length > 0) {
-            lineHtml += ` <em class="vs-tools-inline">— Tools: ${escapeHtml(tools.join(', '))}</em>`;
-          }
+          const tsRaw  = step.timestamp && step.timestamp !== 'unavailable' ? step.timestamp : '';
+          const tsHtml = tsRaw ? `<span class="citation-badge timestamp-link" data-seconds="${parseTimestampToSecs(tsRaw)}" title="Jump to ${tsRaw}">
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="display:inline-block;vertical-align:-1px;margin-right:3px"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            ${escapeHtml(tsRaw)}
+          </span>` : '';
+          const tools  = (step.tools_resources || []).filter(Boolean);
+          let lineHtml = escapeHtml(step.what_to_do);
+          if (tsHtml)              lineHtml += ' ' + tsHtml;
+          if (tools.length > 0)   lineHtml += ` <em class="vs-tools-inline">— Tools: ${escapeHtml(tools.join(', '))}</em>`;
           structuredStepLines.push(lineHtml);
         }
       });
     });
 
-    // Prefer structured steps; fall back to overview action lines
-    const finalStepLines = structuredStepLines.length > 0 ? structuredStepLines
-      : overviewActionLines.map(l => linkifyTimestamps(escapeHtml(l)));
-
-    if (finalStepLines.length > 0 || toolsSet.size > 0) {
+    if (structuredStepLines.length > 0 || toolsSet.size > 0) {
       let actHtml = '';
-      if (finalStepLines.length > 0) {
+      if (structuredStepLines.length > 0) {
         actHtml += '<ol class="vs-ordered-list">';
-        finalStepLines.forEach(l => { actHtml += `<li class="vs-list-item">${l}</li>`; });
+        structuredStepLines.forEach(l => { actHtml += `<li class="vs-list-item">${l}</li>`; });
         actHtml += '</ol>';
       }
       if (toolsSet.size > 0) {
@@ -1158,29 +1280,7 @@ document.addEventListener('DOMContentLoaded', () => {
         toolsSet.forEach(t => { actHtml += `<span class="vs-tool-pill">${escapeHtml(t)}</span>`; });
         actHtml += '</div></div>';
       }
-      container.appendChild(
-        makeSummarySection('zap', 'Key Actions / Steps & Tools', actHtml, 'accent-amber')
-      );
-    }
-
-    // ── 5. Conclusions / Takeaways ───────────────────────────────────────────
-    const finalSummary = (data.final_summary || '').trim();
-    const recs = recommendations.filter(r => !r.includes('Transcript summary') && !r.includes('pasted transcript'));
-    if (finalSummary || recs.length > 0) {
-      let takeawayHtml = '';
-      if (finalSummary && !finalSummary.includes('Transcript summary') && !finalSummary.includes('pasted transcript')) {
-        takeawayHtml += `<p class="vs-body-text">${linkifyTimestamps(escapeHtml(finalSummary))}</p>`;
-      }
-      if (recs.length > 0) {
-        takeawayHtml += '<ul class="vs-list">';
-        recs.forEach(r => { takeawayHtml += `<li class="vs-list-item">${linkifyTimestamps(escapeHtml(r))}</li>`; });
-        takeawayHtml += '</ul>';
-      }
-      if (takeawayHtml) {
-        container.appendChild(
-          makeSummarySection('check-circle', 'Conclusions & Takeaways', takeawayHtml, 'accent-emerald')
-        );
-      }
+      container.appendChild(makeSummarySection('zap', 'Key Actions / Steps & Tools', actHtml, 'accent-amber'));
     }
 
     if (container.children.length === 0) {
