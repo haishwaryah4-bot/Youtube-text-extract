@@ -32,79 +32,80 @@ class AIProcessor:
         """
         Process the complete video transcript with strict grounding and extract all required sections.
         """
-        if not self.api_key:
+        # Detect metadata-only content (no real transcript was retrieved)
+        stripped = re.sub(r'https?://\S+', '', transcript_text or '').strip()
+        is_metadata_only = (
+            not stripped or
+            len(stripped.split()) < 30 or
+            all(w in stripped.lower() for w in ['created by', 'youtube']) or
+            re.search(r'^[A-Za-z .\-,!?()]+\n\nCreated by', stripped, re.MULTILINE) is not None
+        )
+
+        if not self.api_key or is_metadata_only:
             return self._fallback_grounded_extractor(title, author, transcript_text, video_desc)
 
         system_prompt = (
-            "You are an expert video content analyst. Analyze the following transcript of a YouTube video "
-            "and produce a comprehensive, strictly grounded, high-fidelity JSON analysis.\n\n"
-            "CRITICAL GROUNDING RULES:\n"
-            "1. NEVER hallucinate, extrapolate, or assume missing video content.\n"
-            "2. Ground every single point, step, and recommendation strictly in what is stated in the transcript.\n"
-            "3. Provide timestamp citations (e.g. [02:14]) for every major summary point and action step. "
-            "If the transcript lacks timestamps, label them as 'unavailable'.\n"
-            "4. For every action, extract detailed step-by-step instructions. For each step, include:\n"
-            "   - step_number: order index starting from 1\n"
-            "   - what_to_do: clear instruction of what to do\n"
-            "   - why_it_matters: why this step matters / purpose / benefit\n"
-            "   - tools_resources: list of tools, resources, or links mentioned for this step (empty list if none)\n"
-            "   - prerequisites_cautions: prerequisites or cautions/warnings for this step (empty list if none)\n"
-            "   - timestamp: the timestamp citation where this step begins (e.g. '[03:45]') or 'unavailable'\n"
-            "   - evidence: exact supporting transcript excerpt/evidence for this step\n"
-            "5. The 'overview' summary MUST be formatted with bold headings exactly like this:\n"
-            "   **Context:** one or two sentences giving background. [timestamp]\n"
-            "   **Content Summary:** multi-sentence coverage of the main subject, key ideas, and notable details. [timestamp - timestamp]\n"
-            "   **Key Moments:** bullet list of the most important or interesting moments, each with a timestamp.\n"
-            "   **Actions / Steps:** numbered instructions extracted from the video, each with a timestamp.\n"
-            "   Use this exact section order. Include real timestamps from the transcript. Do NOT collapse everything into one paragraph.\n"
-            "6. Output must be strictly valid JSON without markdown wrapping or backticks."
+            "You are an expert video content analyst and summarizer. Your task is to read the ENTIRE transcript "
+            "of a YouTube video and produce a HIGHLY DETAILED, COMPREHENSIVE, STRICTLY GROUNDED JSON analysis.\n\n"
+            "CRITICAL RULES:\n"
+            "1. Write a LONG, DETAILED summary. Do NOT produce brief or vague summaries.\n"
+            "2. The 'overview' field must be a thorough multi-paragraph narrative covering the ENTIRE video from start to finish, section by section.\n"
+            "3. NEVER say 'the transcript only contains metadata' or 'no content available'. If there is any transcript text, analyze it fully.\n"
+            "4. Ground every single point strictly in what is stated in the transcript — no hallucination.\n"
+            "5. Include timestamp citations (e.g. [02:14]) for EVERY major point, fact, and action step.\n"
+            "6. The 'overview' MUST use this exact format with bold section headings:\n"
+            "   **Context:** 2-3 sentences of background. Include creator name and video topic. [timestamp if available]\n"
+            "   **Detailed Content Summary:** 4-8 paragraphs covering the video section by section chronologically, "
+            "   each paragraph describing what was discussed/demonstrated/explained in detail with timestamp citations.\n"
+            "   **Key Moments:** Bullet list of 6-10 most important moments with exact timestamps.\n"
+            "   **Main Takeaways:** 4-6 bullet points summarizing the core learnings.\n"
+            "7. The 'final_summary' must be 3-5 full paragraphs summarizing the complete video in detail.\n"
+            "8. Extract at least 8 key_points facts and 5 main_topics.\n"
+            "9. Output must be strictly valid JSON without markdown wrapping or backticks."
         )
 
         user_prompt = f"""
         VIDEO TITLE: {title}
         CREATOR: {author}
 
-        TRANSCRIPT CONTENT:
-        {transcript_text[:18000]}
+        FULL TRANSCRIPT (analyze every part of this):
+        {transcript_text[:20000]}
 
         OUTPUT JSON FORMAT:
         {{
-          "overview": "Detailed, chronological summary covering the entire video section-by-section, citing timestamps (e.g. [01:23]) for major points. Thorough explanation of explanations, warnings, and conclusions.",
+          "overview": "DETAILED multi-paragraph narrative summary of the entire video. Must cover beginning, middle, and end with timestamp citations. Must be thorough and specific — minimum 300 words.",
           "main_topics": [
-            {{"topic": "Important topic discussed", "explanation": "Detailed explanation with timestamp citations (e.g. [04:30]) and supporting transcript excerpt."}}
+            {{"topic": "Topic name", "explanation": "Detailed 2-3 sentence explanation of this topic with what was said in the video and timestamp citation e.g. [04:30]."}}
           ],
           "key_points": {{
-            "facts": ["Important fact 1 [01:10] (supporting excerpt)", "Important fact 2 [02:15] (supporting excerpt)"],
-            "explanations": ["Important explanation 1 [03:05] (supporting excerpt)"],
-            "recommendations": ["Important recommendation 1 [04:20] (supporting excerpt)"]
+            "facts": ["Specific fact stated in video [01:10] — supporting quote from transcript", "Another fact [02:15] — quote"],
+            "explanations": ["Explanation of concept [03:05] — what the speaker said"],
+            "recommendations": ["Recommendation or advice given [04:20] — quote"]
           }},
           "actions": [
             {{
-              "name": "Action Name",
+              "name": "Action or step name",
               "action_type": "demonstrated",
-              "description": "What needs to be done",
-              "why": "Why this action is performed",
-              "tools_materials": ["Tool/material 1"],
-              "precautions": ["Precaution/warning 1"],
-              "timing_frequency": "Timing or frequency if mentioned",
+              "description": "Full description of what this action involves based on the video",
+              "why": "Why the speaker said this is important",
+              "tools_materials": ["Tools or resources mentioned"],
+              "precautions": ["Any warnings or prerequisites mentioned"],
+              "timing_frequency": "Timing if mentioned, or null",
               "steps": [
                 {{
                   "step_number": 1,
-                  "what_to_do": "Step 1 description",
-                  "why_it_matters": "Why this step matters",
-                  "tools_resources": ["Tool A"],
-                  "prerequisites_cautions": ["Caution B"],
+                  "what_to_do": "Exact step instruction from the video",
+                  "why_it_matters": "Why this step matters per the speaker",
+                  "tools_resources": ["Tools/links mentioned"],
+                  "prerequisites_cautions": ["Warnings for this step"],
                   "timestamp": "[03:45]",
-                  "evidence": "supporting transcript excerpt"
+                  "evidence": "Exact quote from transcript supporting this step"
                 }}
               ]
             }}
           ],
-          "action_checklist": [
-            "Action 1 short task description",
-            "Action 2 short task description"
-          ],
-          "final_summary": "Thorough chronological summary of key takeaways and actionable conclusions with timestamp citations."
+          "action_checklist": ["Short task 1", "Short task 2"],
+          "final_summary": "3-5 paragraph detailed summary of the complete video covering all major points, demonstrations, and takeaways with timestamp citations."
         }}
         """
 
@@ -405,35 +406,58 @@ TRANSCRIPT:
 
             sec_start_ts = section_segs[0]["time"]
             sec_end_ts = section_segs[-1]["time"]
-            sec_range = f" ({sec_start_ts} - {sec_end_ts})" if sec_start_ts != "unavailable" else ""
+            sec_range = f" ({sec_start_ts} – {sec_end_ts})" if sec_start_ts != "unavailable" else ""
             
-            # Select top sentences within this section
-            sec_sorted = sorted(section_segs, key=lambda x: x["score"], reverse=True)
-            top_in_sec = sec_sorted[:min(len(section_segs), 4)]
-            # Preserve chronological order within section
-            sec_indices = sorted([section_segs.index(p) for p in top_in_sec])
-            
+            # Include ALL sentences from this section in chronological order for full coverage
             sec_lines = []
-            for idx in sec_indices:
-                p = section_segs[idx]
-                cit = f" {p['time']}" if p['time'] != "unavailable" else ""
+            for p in section_segs:
+                cit = f" **{p['time']}**" if p['time'] != "unavailable" else ""
                 sec_lines.append(f"{p['text']}{cit}")
-                
+
+            # Group sentences into readable paragraphs of ~3 sentences each
+            para_groups = []
+            for i in range(0, len(sec_lines), 3):
+                para_groups.append(" ".join(sec_lines[i:i+3]))
+
             sec_name = section_titles[s_idx] if s_idx < len(section_titles) else f"Section {s_idx+1}"
-            detailed_sections.append(f"### {sec_name}{sec_range}\n" + " ".join(sec_lines))
+            detailed_sections.append(
+                f"### {sec_name}{sec_range}\n" + "\n\n".join(para_groups)
+            )
 
         chronological_breakdown = "\n\n".join(detailed_sections)
 
-        # Key Moments (top 6 high-scoring highlights)
+        # Key Moments: top 8 highest-scoring sentences
         key_moments_list = []
-        for p in sorted_by_score[:6]:
-            ts_str = f" **{p['time']}** — " if p['time'] != "unavailable" else "• "
-            key_moments_list.append(f"{ts_str}{p['text']}")
+        for p in sorted_by_score[:8]:
+            ts_str = f"**{p['time']}**" if p['time'] != "unavailable" else "•"
+            key_moments_list.append(f"- {ts_str} — {p['text']}")
+
+        # Main takeaways: final 3 sentences (often conclusions)
+        conclusion_segs = parsed_segments[-min(5, len(parsed_segments)):]
+        takeaways = []
+        for p in conclusion_segs:
+            cit = f" {p['time']}" if p['time'] != "unavailable" else ""
+            takeaways.append(f"- {p['text']}{cit}")
+
+        # Final narrative summary: all top-scored sentences in chronological order
+        top_n = min(len(parsed_segments), max(8, len(parsed_segments) * 2 // 3))
+        top_for_summary = sorted_by_score[:top_n]
+        summary_in_order = sorted(top_for_summary, key=lambda x: parsed_segments.index(x))
+        summary_paras = []
+        for i in range(0, len(summary_in_order), 3):
+            group = summary_in_order[i:i+3]
+            para_parts = []
+            for p in group:
+                cit = f" {p['time']}" if p['time'] != "unavailable" else ""
+                para_parts.append(f"{p['text']}{cit}")
+            summary_paras.append(" ".join(para_parts))
+        narrative_summary = "\n\n".join(summary_paras) or f"{title} by {author}."
 
         overview = (
-            f"**Context:** Comprehensive breakdown of *{title}* presented by {author}. Time range: {ts_range}\n\n"
-            f"**Detailed Summary & Section Breakdown:**\n\n{chronological_breakdown}\n\n"
-            f"**Key Highlights & Crucial Moments:**\n" + "\n".join(key_moments_list)
+            f"**Context:** Comprehensive analysis of *{title}* by {author}. Time range: {ts_range}\n\n"
+            f"**Detailed Section-by-Section Breakdown:**\n\n{chronological_breakdown}\n\n"
+            f"**Key Highlights & Most Important Moments:**\n" + "\n".join(key_moments_list) + "\n\n"
+            f"**Main Takeaways:**\n" + "\n".join(takeaways)
         )
 
         # 2. Rich Key Points with Citations
@@ -499,11 +523,11 @@ TRANSCRIPT:
             "main_topics": main_topics,
             "key_points": {
                 "facts": key_facts,
-                "explanations": key_explanations if key_explanations else key_facts[2:5],
-                "recommendations": key_recommendations if key_recommendations else key_facts[5:8]
+                "explanations": key_explanations if key_explanations else key_facts[2:6],
+                "recommendations": key_recommendations if key_recommendations else key_facts[6:]
             },
             "actions": actions,
             "action_checklist": action_checklist,
-            "final_summary": overview,
+            "final_summary": narrative_summary,
             "is_local_fallback": True
         }, title)
