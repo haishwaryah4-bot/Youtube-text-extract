@@ -434,30 +434,11 @@ document.addEventListener('DOMContentLoaded', () => {
         bodyPayload.transcript = manualTranscript;
       }
 
-      loadingText.textContent = 'Getting video content...';
-      
-      const loadingStates = [
-        'Getting video content...',
-        'Transcribing video...',
-        'Generating summary...'
-      ];
-      let currentStateIdx = 0;
-      const loadingInterval = setInterval(() => {
-        currentStateIdx = (currentStateIdx + 1) % loadingStates.length;
-        if (loadingText) loadingText.textContent = loadingStates[currentStateIdx];
-      }, 5000);
-
-      let response;
-      try {
-        response = await fetch('/api/youtube/analyze', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(bodyPayload)
-        });
-      } finally {
-        clearInterval(loadingInterval);
-        if (loadingText) loadingText.textContent = 'Summary ready';
-      }
+      const response = await fetch('/api/youtube/analyze', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(bodyPayload)
+      });
 
       let data;
       try {
