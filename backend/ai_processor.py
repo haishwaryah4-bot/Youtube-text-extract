@@ -379,80 +379,101 @@ TRANSCRIPT:
         # Sort by importance score
         sorted_by_score = sorted(parsed_segments, key=lambda x: x["score"], reverse=True)
 
-        # 1. Structured Overview Construction
+        # 1. Detailed Chronological Overview Construction
         start_ts = parsed_segments[0]["time"]
         end_ts = parsed_segments[-1]["time"]
         ts_range = f"{start_ts} - {end_ts}" if start_ts != "unavailable" and end_ts != "unavailable" else ""
 
-        # Select top scoring sentences in chronological sequence for narrative summary
-        num_summary_sentences = min(len(parsed_segments), max(4, len(parsed_segments) // 3))
-        top_candidates = sorted_by_score[:num_summary_sentences]
-        top_indices = sorted([parsed_segments.index(p) for p in top_candidates])
+        # Divide transcript into chronological sections for thorough coverage
+        num_sections = min(4, max(1, len(parsed_segments) // 4))
+        chunk_size = max(1, len(parsed_segments) // num_sections)
         
-        summary_paragraphs = []
-        curr_para = []
-        for idx in top_indices:
-            seg = parsed_segments[idx]
-            citation = f" {seg['time']}" if seg['time'] != "unavailable" else ""
-            curr_para.append(f"{seg['text']}{citation}")
-            if len(curr_para) >= 2:
-                summary_paragraphs.append(" ".join(curr_para))
-                curr_para = []
-        if curr_para:
-            summary_paragraphs.append(" ".join(curr_para))
+        section_titles = [
+            "Introduction & Core Background",
+            "Key Concepts & Fundamentals",
+            "Practical Techniques & Implementation",
+            "Advanced Insights, Takeaways & Conclusion"
+        ]
 
-        narrative_summary = "\n\n".join(summary_paragraphs) if summary_paragraphs else f"{title} discussed by {author}."
+        detailed_sections = []
+        for s_idx in range(num_sections):
+            start_i = s_idx * chunk_size
+            end_i = len(parsed_segments) if s_idx == num_sections - 1 else (s_idx + 1) * chunk_size
+            section_segs = parsed_segments[start_i:end_i]
+            if not section_segs:
+                continue
 
-        # Construct Overview formatted with clear headings and citations
+            sec_start_ts = section_segs[0]["time"]
+            sec_end_ts = section_segs[-1]["time"]
+            sec_range = f" ({sec_start_ts} - {sec_end_ts})" if sec_start_ts != "unavailable" else ""
+            
+            # Select top sentences within this section
+            sec_sorted = sorted(section_segs, key=lambda x: x["score"], reverse=True)
+            top_in_sec = sec_sorted[:min(len(section_segs), 4)]
+            # Preserve chronological order within section
+            sec_indices = sorted([section_segs.index(p) for p in top_in_sec])
+            
+            sec_lines = []
+            for idx in sec_indices:
+                p = section_segs[idx]
+                cit = f" {p['time']}" if p['time'] != "unavailable" else ""
+                sec_lines.append(f"{p['text']}{cit}")
+                
+            sec_name = section_titles[s_idx] if s_idx < len(section_titles) else f"Section {s_idx+1}"
+            detailed_sections.append(f"### {sec_name}{sec_range}\n" + " ".join(sec_lines))
+
+        chronological_breakdown = "\n\n".join(detailed_sections)
+
+        # Key Moments (top 6 high-scoring highlights)
         key_moments_list = []
-        for p in sorted_by_score[:4]:
+        for p in sorted_by_score[:6]:
             ts_str = f" **{p['time']}** — " if p['time'] != "unavailable" else "• "
             key_moments_list.append(f"{ts_str}{p['text']}")
 
         overview = (
-            f"**Context:** Overview for *{title}* presented by {author}. {ts_range}\n\n"
-            f"**Content Summary:**\n{narrative_summary}\n\n"
-            f"**Key Moments:**\n" + "\n".join(key_moments_list)
+            f"**Context:** Comprehensive breakdown of *{title}* presented by {author}. Time range: {ts_range}\n\n"
+            f"**Detailed Summary & Section Breakdown:**\n\n{chronological_breakdown}\n\n"
+            f"**Key Highlights & Crucial Moments:**\n" + "\n".join(key_moments_list)
         )
 
-        # 2. Key Points with Citations
+        # 2. Rich Key Points with Citations
         key_facts = []
         key_explanations = []
         key_recommendations = []
         for i, p in enumerate(sorted_by_score):
             ts_tag = f" {p['time']}" if p['time'] != "unavailable" else ""
             point_text = f"{p['text']}{ts_tag}"
-            if len(key_facts) < 5 and point_text not in key_facts:
+            if len(key_facts) < 8 and point_text not in key_facts:
                 key_facts.append(point_text)
-            elif len(key_explanations) < 3 and point_text not in key_explanations:
+            elif len(key_explanations) < 6 and point_text not in key_explanations:
                 key_explanations.append(point_text)
-            elif len(key_recommendations) < 3 and point_text not in key_recommendations:
+            elif len(key_recommendations) < 6 and point_text not in key_recommendations:
                 key_recommendations.append(point_text)
 
-        # 3. Main Topics with Citations
-        top_terms = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
+        # 3. Main Topics with Multi-Sentence Explanations & Citations
+        top_terms = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:8]
         main_topics = []
         for term, _ in top_terms:
-            for p in parsed_segments:
-                if term in p["text"].lower():
-                    ts_tag = f" {p['time']}" if p['time'] != "unavailable" else ""
-                    main_topics.append({
-                        "topic": term.capitalize(),
-                        "explanation": f"{p['text']}{ts_tag}"
-                    })
-                    break
+            matching = [p for p in parsed_segments if term in p["text"].lower()]
+            if matching:
+                top_m = matching[:2]
+                topic_desc = " ".join([f"{m['text']} {m['time'] if m['time'] != 'unavailable' else ''}".strip() for m in top_m])
+                main_topics.append({
+                    "topic": term.capitalize(),
+                    "explanation": topic_desc
+                })
 
         # 4. Actionable Steps with Citations
-        action_verbs = ["use", "apply", "install", "monitor", "ensure", "configure", "run", "click", "check", "deliver", "protect", "start", "create", "set", "add", "make", "reduce", "improve", "test", "build"]
+        action_verbs = ["use", "apply", "install", "monitor", "ensure", "configure", "run", "click", "check", "deliver", "protect", "start", "create", "set", "add", "make", "reduce", "improve", "test", "build", "write", "learn", "choose", "define"]
         actions = []
         action_checklist = []
         for p in parsed_segments:
             t_lower = p["text"].lower()
             if any(re.search(rf'\b{v}\b', t_lower) for v in action_verbs):
                 act_name = p["text"]
-                if len(act_name) > 80:
-                    act_name = act_name[:77] + "..."
-                if act_name not in action_checklist and len(actions) < 4:
+                if len(act_name) > 85:
+                    act_name = act_name[:82] + "..."
+                if act_name not in action_checklist and len(actions) < 6:
                     ts_val = p["time"] if p["time"] != "unavailable" else None
                     action_checklist.append(f"{act_name} {p['time']}" if p['time'] != "unavailable" else act_name)
                     actions.append({
@@ -465,7 +486,7 @@ TRANSCRIPT:
                         "steps": [{
                             "step_number": 1,
                             "what_to_do": p["text"],
-                            "why_it_matters": "Core action step identified from the video.",
+                            "why_it_matters": "Key action step identified from the video instruction.",
                             "tools_resources": [],
                             "prerequisites_cautions": [],
                             "timestamp": ts_val or "unavailable",
@@ -478,11 +499,11 @@ TRANSCRIPT:
             "main_topics": main_topics,
             "key_points": {
                 "facts": key_facts,
-                "explanations": key_explanations,
-                "recommendations": key_recommendations
+                "explanations": key_explanations if key_explanations else key_facts[2:5],
+                "recommendations": key_recommendations if key_recommendations else key_facts[5:8]
             },
             "actions": actions,
             "action_checklist": action_checklist,
-            "final_summary": narrative_summary,
+            "final_summary": overview,
             "is_local_fallback": True
         }, title)
