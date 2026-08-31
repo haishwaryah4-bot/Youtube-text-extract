@@ -296,6 +296,51 @@ async def chat_with_video(request):
     return JSONResponse({"reply": reply})
 
 # Route Definitions
+async def debug_transcript(request):
+    """
+    GET /api/debug/transcript?v=VIDEO_ID
+    Safely test each transcript provider and return diagnostic info.
+    Shows which providers succeeded/failed without exposing credentials.
+    """
+    video_id = request.query_params.get("v", "").strip()
+    if not video_id:
+        return JSONResponse({"error": "Missing ?v=VIDEO_ID parameter"}, status_code=400)
+
+    from backend.youtube_service import (
+        PrimaryTranscriptProvider, FallbackTranscriptProvider
+    )
+    import os
+
+    results = []
+    providers = [PrimaryTranscriptProvider(), FallbackTranscriptProvider()]
+    for provider in providers:
+        try:
+            r = provider.get_transcript(video_id, timeout=15.0)
+            results.append({
+                "provider": provider.name,
+                "status": r.status,
+                "word_count": r.word_count,
+                "error": r.error,
+                "success": r.status == "success"
+            })
+        except Exception as e:
+            results.append({
+                "provider": provider.name,
+                "status": "exception",
+                "error": str(e),
+                "success": False
+            })
+
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    openai_configured = bool(api_key and len(api_key) > 20 and api_key != "sk-placeholder")
+
+    return JSONResponse({
+        "video_id": video_id,
+        "openai_configured": openai_configured,
+        "openai_key_prefix": api_key[:6] + "..." if openai_configured else "NOT_SET",
+        "providers": results
+    })
+
 routes = [
     Route("/api/health", health_check, methods=["GET"]),
     Route("/api/config/check", config_check, methods=["GET"]),
@@ -305,6 +350,7 @@ routes = [
     Route("/api/process-video", analyze_youtube, methods=["POST"]),  # Legacy alias
     Route("/api/pdf/{video_id}", get_pdf, methods=["GET"]),
     Route("/api/chat", chat_with_video, methods=["POST"]),
+    Route("/api/debug/transcript", debug_transcript, methods=["GET"]),
 ]
 
 middleware = [

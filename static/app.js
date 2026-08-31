@@ -452,15 +452,19 @@ document.addEventListener('DOMContentLoaded', () => {
         let userFacingError = data.error || 'An unexpected error occurred.';
         
         if (data.error_type === 'YOUTUBE_RATE_LIMITED') {
-            userFacingError = 'YouTube is temporarily blocking automated access from our servers. Please try a different video or paste the transcript manually.';
+            userFacingError = 'YouTube is temporarily blocking automated requests from our servers. Please try again in a few minutes or paste the transcript manually.';
         } else if (data.error_type === 'YOUTUBE_BOT_CHECK') {
-            userFacingError = 'YouTube requires sign-in verification for this video from our cloud servers. Automated audio transcription is unavailable. Please paste the transcript text manually below.';
+            userFacingError = 'YouTube requires sign-in verification for this video from our cloud servers. Please paste the transcript text manually below.';
+        } else if (data.error_type === 'YOUTUBE_CAPTIONS_UNAVAILABLE') {
+            userFacingError = 'This video has no accessible captions or auto-generated transcript. Please paste the transcript text manually.';
         } else if (data.error_type === 'NO_TRANSCRIPT') {
             userFacingError = 'No speech or captions could be found in this video.';
         } else if (data.error_type === 'VIDEO_UNAVAILABLE') {
             userFacingError = 'This video is private, age-restricted, removed, or unavailable.';
         } else if (data.error_type === 'OPENAI_CONFIGURATION_ERROR') {
-            userFacingError = 'OpenAI API key is not configured. Cannot process the audio fallback.';
+            userFacingError = 'OpenAI API key is not configured on this server.';
+        } else if (data.error_type === 'TRANSCRIPTION_TIMEOUT') {
+            userFacingError = 'Transcript retrieval timed out. Please try a shorter video or paste the transcript manually.';
         }
 
         throw new Error(userFacingError);

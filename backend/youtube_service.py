@@ -721,9 +721,8 @@ class TranscriptManager:
         self.providers: List[TranscriptProvider] = providers or [
             PrimaryTranscriptProvider(),
             FallbackTranscriptProvider(),
-            # WhisperAudioTranscriptProvider is NOT included here.
+            # WhisperAudioTranscriptProvider is intentionally excluded.
             # yt-dlp cannot be used on Vercel serverless (YouTube bot-check blocks cloud IPs).
-            # The WhisperAudioTranscriptProvider class still exists for optional local use.
         ]
 
     def fetch_transcript(self, video_id: str, timeout: float = 15.0) -> TranscriptResult:

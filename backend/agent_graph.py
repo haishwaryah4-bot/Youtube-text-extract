@@ -125,37 +125,47 @@ def prepare_transcript(state: VideoGraphState) -> VideoGraphState:
         state["chunks"] = []
         state["transcript_status"] = "unavailable"
         
-        # Determine clear error type and message
+        # Determine precise error type and user-facing message
         error_type = "TRANSCRIPTION_ERROR"
-        error_message = err_msg or "Transcript-based analysis is unavailable for this video at the moment."
+        internal_error = err_msg or "All transcript providers failed."
+        error_message = f"Unable to obtain transcript for this video. ({internal_error})"
 
         if transcript_status == "rate_limited":
             error_type = "YOUTUBE_RATE_LIMITED"
-            error_message = "YouTube is currently rate-limiting automated transcript requests."
+            error_message = "YouTube is temporarily rate-limiting automated requests from this server. Please try again later or paste the transcript manually."
         elif transcript_status == "bot_check":
             error_type = "YOUTUBE_BOT_CHECK"
-            error_message = (
-                "YouTube is requiring sign-in verification to access this video from our cloud servers. "
-                "This video cannot be automatically transcribed. Please paste the transcript manually."
-            )
+            error_message = "YouTube requires sign-in verification for this video from our cloud servers. Please paste the transcript manually."
         elif transcript_status == "video_unavailable":
             error_type = "VIDEO_UNAVAILABLE"
             error_message = "This video is private, age-restricted, removed, or unavailable."
+        elif transcript_status == "captions_unavailable":
+            # Captions genuinely not available for this video — no audio fallback
+            error_type = "YOUTUBE_CAPTIONS_UNAVAILABLE"
+            error_message = (
+                "This video has no accessible captions or transcript. "
+                "Please paste the transcript text manually."
+            )
         elif "OpenAI API key is missing" in str(err_msg):
             error_type = "OPENAI_CONFIGURATION_ERROR"
-            error_message = "OpenAI API key is missing or invalid. Cannot use audio transcription fallback."
-        elif "yt-dlp is not installed" in str(err_msg):
+            error_message = "OpenAI API key is not configured on this server."
+        elif "timed out" in str(err_msg).lower() or "timeout" in str(err_msg).lower():
+            error_type = "TRANSCRIPTION_TIMEOUT"
+            error_message = "Transcript retrieval timed out. The video may be too long or the server is busy."
+        else:
             error_type = "TRANSCRIPTION_ERROR"
-            error_message = "Audio extraction dependency missing."
-        elif "too few words" in str(err_msg):
-            error_type = "NO_TRANSCRIPT"
-            error_message = "The video contains no recognizable speech."
-        elif "captions are empty" in str(err_msg).lower() or "disabled or unavailable" in str(err_msg).lower():
-            error_type = "NO_TRANSCRIPT"
-            error_message = "The video has no captions and audio fallback failed."
+            error_message = "Unable to retrieve transcript for this video. Please paste the transcript manually."
+
+        # Log the internal error server-side for debugging
+        import logging
+        logging.getLogger("agent_graph").error(
+            f"[TRANSCRIPT] All providers failed for video. "
+            f"Status={transcript_status} Provider={provider_name} InternalError={internal_error}"
+        )
 
         state["error"] = error_message
         state["error_type"] = error_type
+        state["internal_error"] = internal_error   # safe server-side detail, never shown to user
             
         return state
 
