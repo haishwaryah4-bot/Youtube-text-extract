@@ -293,126 +293,196 @@ TRANSCRIPT:
 
     def _fallback_grounded_extractor(self, title: str, author: str, transcript_text: str, video_desc: str = "") -> Dict[str, Any]:
         """
-        Local fallback extractor if no OpenAI key is set or API fails.
-        Performs local extractive summarization using basic frequency scoring.
+        Grounded local extractive summarizer producing clear, coherent summaries with timestamp citations.
         """
         # Sanitize text
         _url_re = re.compile(r'https?://\S+', re.IGNORECASE)
         transcript_clean = _url_re.sub('', transcript_text).strip()
         
-        # Split into segments by newlines or sentence boundaries
-        raw_chunks = [line.strip() for line in transcript_clean.split('\n') if line.strip()]
+        raw_lines = [line.strip() for line in transcript_clean.split('\n') if line.strip()]
         
-        parsed_lines = []
-        for chunk in raw_chunks:
-            # Check for timestamps like [01:23] or 01:23
-            match = re.search(r'\[?(\d{1,2}:\d{2}(?::\d{2})?)\]?', chunk)
+        # Step 1: Parse raw timestamped chunks
+        raw_items = []
+        for line in raw_lines:
+            match = re.search(r'\[(\d{1,2}:\d{2}(?::\d{2})?)\]', line)
             ts = f"[{match.group(1)}]" if match else "unavailable"
-            clean_chunk = chunk
+            clean_text = line
             if match:
-                clean_chunk = chunk.replace(match.group(0), "").strip()
-                clean_chunk = re.sub(r'^[:\s\-\u2013\u2014]+', '', clean_chunk)
+                clean_text = line.replace(match.group(0), "").strip()
+                clean_text = re.sub(r'^[:\s\-\u2013\u2014]+', '', clean_text)
             
-            # Further split chunk into sentences if it's a long paragraph
-            sentences = re.split(r'(?<=[.!?])\s+', clean_chunk)
-            for s in sentences:
-                s_clean = s.strip()
-                if len(s_clean) > 5:
-                    parsed_lines.append({"time": ts, "text": s_clean})
+            clean_text = re.sub(r'\s+', ' ', clean_text).strip()
+            if clean_text:
+                raw_items.append({"time": ts, "text": clean_text})
 
-        if not parsed_lines:
-            parsed_lines = [{"time": "unavailable", "text": transcript_clean or "No transcript content provided."}]
+        # Step 2: Merge fragmented short subtitle segments into complete, readable sentences
+        parsed_segments = []
+        buffer_text = []
+        buffer_time = "unavailable"
+
+        for item in raw_items:
+            if not buffer_text:
+                buffer_time = item["time"]
+            buffer_text.append(item["text"])
+
+            combined = " ".join(buffer_text).strip()
+            word_count = len(combined.split())
+            
+            # Sentence completes if terminal punctuation or sufficient length reached
+            if combined.endswith(('.', '!', '?')) or word_count >= 12 or item["text"].endswith(('.', '!', '?')):
+                # Clean up punctuation and capitalization
+                combined = re.sub(r'\s+([.,!?])', r'\1', combined)
+                if not combined[0].isupper():
+                    combined = combined[0].upper() + combined[1:]
+                if not combined.endswith(('.', '!', '?')):
+                    combined += '.'
+                parsed_segments.append({"time": buffer_time, "text": combined})
+                buffer_text = []
+                buffer_time = "unavailable"
+
+        if buffer_text:
+            combined = " ".join(buffer_text).strip()
+            if not combined[0].isupper():
+                combined = combined[0].upper() + combined[1:]
+            if not combined.endswith(('.', '!', '?')):
+                combined += '.'
+            parsed_segments.append({"time": buffer_time, "text": combined})
+
+        if not parsed_segments:
+            parsed_segments = [{"time": "[00:00]", "text": f"{title}. Content presented by {author}."}]
 
         # Stop words filter
         stop_words = set([
             "the", "and", "is", "in", "to", "of", "a", "it", "that", "this", "you", "for", "on", "are", 
             "with", "as", "i", "we", "they", "so", "be", "but", "not", "have", "from", "or", "what", 
             "how", "can", "your", "all", "about", "an", "by", "at", "if", "more", "when", "will", "there",
-            "which", "also", "their", "them", "then", "into", "just", "do", "does", "did", "been"
+            "which", "also", "their", "them", "then", "into", "just", "do", "does", "did", "been", "would", "could"
         ])
         
         # Word frequencies
         word_freq = {}
-        for p in parsed_lines:
+        for p in parsed_segments:
             words = re.findall(r'\b[a-zA-Z]{3,}\b', p["text"].lower())
             for w in words:
                 if w not in stop_words:
                     word_freq[w] = word_freq.get(w, 0) + 1
 
-        # Score sentences based on word significance
-        for p in parsed_lines:
+        # Score sentences based on word frequency & length
+        for p in parsed_segments:
             words = re.findall(r'\b[a-zA-Z]{3,}\b', p["text"].lower())
             score = 0
             for w in set(words):
                 score += word_freq.get(w, 0)
-            p["score"] = score / (len(words) + 1) if words else 0
+            # Normalize by word count to prevent bias towards excessively long run-on sentences
+            p["score"] = score / (len(words) + 2) if words else 0
 
         # Sort by importance score
-        sorted_lines = sorted(parsed_lines, key=lambda x: x["score"], reverse=True)
+        sorted_by_score = sorted(parsed_segments, key=lambda x: x["score"], reverse=True)
 
-        # Select top sentences for summary in chronological order
-        top_k = min(len(parsed_lines), max(3, len(parsed_lines) // 2))
-        top_sentences = sorted_lines[:top_k]
-        top_indices = sorted([parsed_lines.index(p) for p in top_sentences])
-        summary_sentences = [parsed_lines[i]["text"] for i in top_indices]
+        # 1. Structured Overview Construction
+        start_ts = parsed_segments[0]["time"]
+        end_ts = parsed_segments[-1]["time"]
+        ts_range = f"{start_ts} - {end_ts}" if start_ts != "unavailable" and end_ts != "unavailable" else ""
 
+        # Select top scoring sentences in chronological sequence for narrative summary
+        num_summary_sentences = min(len(parsed_segments), max(4, len(parsed_segments) // 3))
+        top_candidates = sorted_by_score[:num_summary_sentences]
+        top_indices = sorted([parsed_segments.index(p) for p in top_candidates])
+        
         summary_paragraphs = []
-        for i in range(0, len(summary_sentences), 3):
-            summary_paragraphs.append(" ".join(summary_sentences[i:i+3]))
-        final_summary_text = "\n\n".join(summary_paragraphs) if summary_paragraphs else transcript_clean
+        curr_para = []
+        for idx in top_indices:
+            seg = parsed_segments[idx]
+            citation = f" {seg['time']}" if seg['time'] != "unavailable" else ""
+            curr_para.append(f"{seg['text']}{citation}")
+            if len(curr_para) >= 2:
+                summary_paragraphs.append(" ".join(curr_para))
+                curr_para = []
+        if curr_para:
+            summary_paragraphs.append(" ".join(curr_para))
 
-        overview = f"**Context:** {title}\n\n**Summary:**\n{final_summary_text}"
+        narrative_summary = "\n\n".join(summary_paragraphs) if summary_paragraphs else f"{title} discussed by {author}."
 
-        # Extract Key Points (top unique scoring sentences)
-        key_points_facts = []
-        for p in sorted_lines:
-            t = p["text"]
-            if t not in key_points_facts and len(key_points_facts) < 5:
-                key_points_facts.append(t)
+        # Construct Overview formatted with clear headings and citations
+        key_moments_list = []
+        for p in sorted_by_score[:4]:
+            ts_str = f" **{p['time']}** — " if p['time'] != "unavailable" else "• "
+            key_moments_list.append(f"{ts_str}{p['text']}")
 
-        # Extract Topics from highest frequency terms
+        overview = (
+            f"**Context:** Overview for *{title}* presented by {author}. {ts_range}\n\n"
+            f"**Content Summary:**\n{narrative_summary}\n\n"
+            f"**Key Moments:**\n" + "\n".join(key_moments_list)
+        )
+
+        # 2. Key Points with Citations
+        key_facts = []
+        key_explanations = []
+        key_recommendations = []
+        for i, p in enumerate(sorted_by_score):
+            ts_tag = f" {p['time']}" if p['time'] != "unavailable" else ""
+            point_text = f"{p['text']}{ts_tag}"
+            if len(key_facts) < 5 and point_text not in key_facts:
+                key_facts.append(point_text)
+            elif len(key_explanations) < 3 and point_text not in key_explanations:
+                key_explanations.append(point_text)
+            elif len(key_recommendations) < 3 and point_text not in key_recommendations:
+                key_recommendations.append(point_text)
+
+        # 3. Main Topics with Citations
         top_terms = sorted(word_freq.items(), key=lambda x: x[1], reverse=True)[:5]
         main_topics = []
         for term, _ in top_terms:
-            for p in parsed_lines:
+            for p in parsed_segments:
                 if term in p["text"].lower():
+                    ts_tag = f" {p['time']}" if p['time'] != "unavailable" else ""
                     main_topics.append({
                         "topic": term.capitalize(),
-                        "explanation": p["text"]
+                        "explanation": f"{p['text']}{ts_tag}"
                     })
                     break
 
-        # Extract Actionable Items (sentences containing action indicators)
-        action_verbs = ["use", "apply", "install", "monitor", "ensure", "configure", "run", "click", "check", "deliver", "protect", "start", "create", "set", "add", "make", "reduce", "improve"]
+        # 4. Actionable Steps with Citations
+        action_verbs = ["use", "apply", "install", "monitor", "ensure", "configure", "run", "click", "check", "deliver", "protect", "start", "create", "set", "add", "make", "reduce", "improve", "test", "build"]
         actions = []
         action_checklist = []
-        for p in parsed_lines:
+        for p in parsed_segments:
             t_lower = p["text"].lower()
             if any(re.search(rf'\b{v}\b', t_lower) for v in action_verbs):
                 act_name = p["text"]
                 if len(act_name) > 80:
                     act_name = act_name[:77] + "..."
                 if act_name not in action_checklist and len(actions) < 4:
-                    action_checklist.append(act_name)
+                    ts_val = p["time"] if p["time"] != "unavailable" else None
+                    action_checklist.append(f"{act_name} {p['time']}" if p['time'] != "unavailable" else act_name)
                     actions.append({
                         "name": act_name,
                         "description": p["text"],
-                        "timestamp": p["time"] if p["time"] != "unavailable" else None,
-                        "action_type": "recommended",
+                        "timestamp": ts_val,
+                        "action_type": "demonstrated",
                         "tools_materials": [],
-                        "precautions": []
+                        "precautions": [],
+                        "steps": [{
+                            "step_number": 1,
+                            "what_to_do": p["text"],
+                            "why_it_matters": "Core action step identified from the video.",
+                            "tools_resources": [],
+                            "prerequisites_cautions": [],
+                            "timestamp": ts_val or "unavailable",
+                            "evidence": p["text"]
+                        }]
                     })
 
         return self._validate_and_sanitize_result({
             "overview": overview,
             "main_topics": main_topics,
             "key_points": {
-                "facts": key_points_facts,
-                "explanations": key_points_facts[1:3] if len(key_points_facts) > 2 else [],
-                "recommendations": key_points_facts[3:5] if len(key_points_facts) > 4 else []
+                "facts": key_facts,
+                "explanations": key_explanations,
+                "recommendations": key_recommendations
             },
             "actions": actions,
             "action_checklist": action_checklist,
-            "final_summary": final_summary_text,
+            "final_summary": narrative_summary,
             "is_local_fallback": True
         }, title)
